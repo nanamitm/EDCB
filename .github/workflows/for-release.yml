@@ -24,6 +24,13 @@ jobs:
       - name: Build
         shell: powershell
         run: |
+          # Record the hash in release.sha256 and copy the file into the artifact directory with the release layout
+          function Add-Release($file, $relPath) {
+            Add-Content ..\..\release.sha256 ((Get-FileHash $file -Algorithm SHA256).Hash.ToLower() + $prefix + $relPath)
+            $dest = Join-Path ..\..\artifact ($prefix.TrimStart(' ', '*') + $relPath)
+            New-Item -ItemType Directory -Force (Split-Path $dest) | Out-Null
+            Copy-Item $file $dest
+          }
           cd .\Document\MinGW
           $path = $env:PATH
           $env:MINGW_ROOT = 'C:\mingw32'
@@ -32,21 +39,21 @@ jobs:
             $env:SOURCE_DATE_EPOCH = ([DateTimeOffset]'2026-11-22T00:00:00+09:00').ToUnixTimeSeconds()
             mingw32-make CC=gcc
             if ($LASTEXITCODE -ne 0) { Write-Error . }
-            Add-Content ..\..\release.sha256 ((Get-FileHash asyncbuf.exe            -Algorithm SHA256).Hash.ToLower() + $prefix + 'Tools\asyncbuf.exe')
-            Add-Content ..\..\release.sha256 ((Get-FileHash relayread.exe           -Algorithm SHA256).Hash.ToLower() + $prefix + 'Tools\relayread.exe')
-            Add-Content ..\..\release.sha256 ((Get-FileHash tsidmove.exe            -Algorithm SHA256).Hash.ToLower() + $prefix + 'Tools\tsidmove.exe')
-            Add-Content ..\..\release.sha256 ((Get-FileHash tspgtxt.exe             -Algorithm SHA256).Hash.ToLower() + $prefix + 'Tools\tspgtxt.exe')
-            Add-Content ..\..\release.sha256 ((Get-FileHash EpgDataCap_Bon.exe      -Algorithm SHA256).Hash.ToLower() + $prefix + 'EpgDataCap_Bon.exe')
-            Add-Content ..\..\release.sha256 ((Get-FileHash EpgDataCap3.dll         -Algorithm SHA256).Hash.ToLower() + $prefix + 'EpgDataCap3.dll')
-            Add-Content ..\..\release.sha256 ((Get-FileHash EpgDataCap3_Unicode.dll -Algorithm SHA256).Hash.ToLower() + $prefix + 'EpgDataCap3_Unicode.dll')
-            Add-Content ..\..\release.sha256 ((Get-FileHash EpgTimerAdminProxy.exe  -Algorithm SHA256).Hash.ToLower() + $prefix + 'EpgTimerAdminProxy.exe')
-            Add-Content ..\..\release.sha256 ((Get-FileHash EpgTimerPlugIn.tvtp     -Algorithm SHA256).Hash.ToLower() + $prefix + 'EpgTimerPlugIn.tvtp')
-            Add-Content ..\..\release.sha256 ((Get-FileHash RecName_Macro.dll       -Algorithm SHA256).Hash.ToLower() + $prefix + 'RecName\RecName_Macro.dll')
-            Add-Content ..\..\release.sha256 ((Get-FileHash SendTSTCP.dll           -Algorithm SHA256).Hash.ToLower() + $prefix + 'SendTSTCP.dll')
-            Add-Content ..\..\release.sha256 ((Get-FileHash Write_Default.dll       -Algorithm SHA256).Hash.ToLower() + $prefix + 'Write\Write_Default.dll')
-            Add-Content ..\..\release.sha256 ((Get-FileHash Write_OneService.dll    -Algorithm SHA256).Hash.ToLower() + $prefix + 'EdcbPlugIn\Write_OneService.dll')
-            Add-Content ..\..\release.sha256 ((Get-FileHash EdcbPlugIn.tvtp         -Algorithm SHA256).Hash.ToLower() + $prefix + 'EdcbPlugIn\EdcbPlugIn.tvtp')
-            Add-Content ..\..\release.sha256 ((Get-FileHash EpgTimerSrv.exe         -Algorithm SHA256).Hash.ToLower() + $prefix + 'EpgTimerSrv.exe')
+            Add-Release asyncbuf.exe 'Tools\asyncbuf.exe'
+            Add-Release relayread.exe 'Tools\relayread.exe'
+            Add-Release tsidmove.exe 'Tools\tsidmove.exe'
+            Add-Release tspgtxt.exe 'Tools\tspgtxt.exe'
+            Add-Release EpgDataCap_Bon.exe 'EpgDataCap_Bon.exe'
+            Add-Release EpgDataCap3.dll 'EpgDataCap3.dll'
+            Add-Release EpgDataCap3_Unicode.dll 'EpgDataCap3_Unicode.dll'
+            Add-Release EpgTimerAdminProxy.exe 'EpgTimerAdminProxy.exe'
+            Add-Release EpgTimerPlugIn.tvtp 'EpgTimerPlugIn.tvtp'
+            Add-Release RecName_Macro.dll 'RecName\RecName_Macro.dll'
+            Add-Release SendTSTCP.dll 'SendTSTCP.dll'
+            Add-Release Write_Default.dll 'Write\Write_Default.dll'
+            Add-Release Write_OneService.dll 'EdcbPlugIn\Write_OneService.dll'
+            Add-Release EdcbPlugIn.tvtp 'EdcbPlugIn\EdcbPlugIn.tvtp'
+            Add-Release EpgTimerSrv.exe 'EpgTimerSrv.exe'
             mingw32-make CC=gcc clean
             $env:SOURCE_DATE_EPOCH = ([DateTimeOffset]'2026-02-19T00:00:00+09:00').ToUnixTimeSeconds()
             mingw32-make CC=gcc lua52.dll
@@ -66,23 +73,30 @@ jobs:
             $env:SOURCE_DATE_EPOCH = ([DateTimeOffset]'2026-06-11T00:00:00+09:00').ToUnixTimeSeconds()
             mingw32-make CC=gcc tsmemseg.exe
             if ($LASTEXITCODE -ne 0) { Write-Error . }
-            Add-Content ..\..\release.sha256 ((Get-FileHash lua52.dll    -Algorithm SHA256).Hash.ToLower() + $prefix + 'lua52.dll')
-            Add-Content ..\..\release.sha256 ((Get-FileHash zlib52.dll   -Algorithm SHA256).Hash.ToLower() + $prefix + 'zlib52.dll')
-            Add-Content ..\..\release.sha256 ((Get-FileHash b24tovtt.exe -Algorithm SHA256).Hash.ToLower() + $prefix + 'Tools\b24tovtt.exe')
-            Add-Content ..\..\release.sha256 ((Get-FileHash psisiarc.exe -Algorithm SHA256).Hash.ToLower() + $prefix + 'Tools\psisiarc.exe')
-            Add-Content ..\..\release.sha256 ((Get-FileHash psisimux.exe -Algorithm SHA256).Hash.ToLower() + $prefix + 'Tools\psisimux.exe')
-            Add-Content ..\..\release.sha256 ((Get-FileHash tsmemseg.exe -Algorithm SHA256).Hash.ToLower() + $prefix + 'Tools\tsmemseg.exe')
+            Add-Release lua52.dll 'lua52.dll'
+            Add-Release zlib52.dll 'zlib52.dll'
+            Add-Release b24tovtt.exe 'Tools\b24tovtt.exe'
+            Add-Release psisiarc.exe 'Tools\psisiarc.exe'
+            Add-Release psisimux.exe 'Tools\psisimux.exe'
+            Add-Release tsmemseg.exe 'Tools\tsmemseg.exe'
             mingw32-make CC=gcc clean_extra
             mingw32-make CC=gcc TSMEMSEG_WITHOUT_D=y tsmemseg.exe
             if ($LASTEXITCODE -ne 0) { Write-Error . }
             $env:SOURCE_DATE_EPOCH = ([DateTimeOffset]'2026-04-28T00:00:00+09:00').ToUnixTimeSeconds()
             mingw32-make CC=gcc tsreadex.exe
             if ($LASTEXITCODE -ne 0) { Write-Error . }
-            Add-Content ..\..\release.sha256 ((Get-FileHash tsmemseg.exe -Algorithm SHA256).Hash.ToLower() + $prefix + 'Tools\tsmemseg(without-d).exe')
-            Add-Content ..\..\release.sha256 ((Get-FileHash tsreadex.exe -Algorithm SHA256).Hash.ToLower() + $prefix + 'Tools\tsreadex.exe')
+            Add-Release tsmemseg.exe 'Tools\tsmemseg(without-d).exe'
+            Add-Release tsreadex.exe 'Tools\tsreadex.exe'
             mingw32-make CC=gcc clean_extra
             $env:MINGW_ROOT = 'C:\mingw64'
           }
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: EDCB-${{ github.sha }}
+          path: |
+            artifact/
+            release.sha256
 
       - name: Push commit
         env:
