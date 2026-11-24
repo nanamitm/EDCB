@@ -8,6 +8,7 @@
 #include "resource.h"
 #include <shellapi.h>
 #include <commctrl.h>
+#include "../../Common/DarkMessageBoxUtil.h"
 
 #define EPG_TIMER_SERVICE_EXE L"EpgTimerSrv.exe"
 
@@ -155,7 +156,7 @@ LRESULT CALLBACK CEpgTimerTask::MainWndProc(HWND hwnd, UINT uMsg, WPARAM wParam,
 			for( int timeout = 0; cmd.SendRegistGUI(GetCurrentProcessId()) != CMD_SUCCESS; timeout += 100 ){
 				SleepForMsec(100);
 				if( timeout > CONNECT_TIMEOUT ){
-					MessageBox(hwnd, L"サービスの起動を確認できませんでした。", nullptr, MB_ICONERROR);
+					DarkAwareMessageBox(hwnd, L"サービスの起動を確認できませんでした。", nullptr, MB_ICONERROR);
 					PostMessage(hwnd, WM_CLOSE, 0, 0);
 					break;
 				}
@@ -284,12 +285,12 @@ LRESULT CALLBACK CEpgTimerTask::MainWndProc(HWND hwnd, UINT uMsg, WPARAM wParam,
 				if(cmd.SendChkSuspend() == CMD_SUCCESS ){
 					cmd.SendSuspend(LOWORD(wParam) == IDC_BUTTON_S3 ? 0xFF01 : 0xFF02);
 				}else{
-					MessageBox(hwnd, L"移行できる状態ではありません。\r\n（もうすぐ予約が始まる。または抑制条件のexeが起動している。など）", nullptr, MB_ICONERROR);
+					DarkAwareMessageBox(hwnd, L"移行できる状態ではありません。\r\n（もうすぐ予約が始まる。または抑制条件のexeが起動している。など）", nullptr, MB_ICONERROR);
 				}
 			}
 			break;
 		case IDC_BUTTON_END:
-			if( MessageBox(hwnd, SERVICE_NAME L" (Task) を終了します（サービスは終了しません）。", L"確認", MB_OKCANCEL | MB_ICONINFORMATION) == IDOK ){
+			if( DarkAwareMessageBox(hwnd, SERVICE_NAME L" (Task) を終了します（サービスは終了しません）。", L"確認", MB_OKCANCEL | MB_ICONINFORMATION) == IDOK ){
 				SendMessage(hwnd, WM_CLOSE, 0, 0);
 			}
 			break;

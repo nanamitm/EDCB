@@ -5,6 +5,7 @@
 #include "EpgDataCap_Bon.h"
 #include "SetDlgService.h"
 #include "../../BonCtrl/ChSetUtil.h"
+#include "../../Common/DarkMessageBoxUtil.h"
 
 static LPARAM ListView_GetItemParam(HWND hItem, int iItem, int iSubItem)
 {
@@ -203,7 +204,7 @@ void CSetDlgService::OnBnClickedButtonDel()
 	if( sel < 0 ){
 		return ;
 	}
-	if( MessageBox(m_hWnd, L"削除を行うと、再度チャンネルスキャンを行うまで項目が表示されなくなります。\r\nよろしいですか？",L"", MB_OKCANCEL) == IDOK ){
+	if( DarkAwareMessageBox(m_hWnd, L"削除を行うと、再度チャンネルスキャンを行うまで項目が表示されなくなります。\r\nよろしいですか？",L"", MB_OKCANCEL) == IDOK ){
 		map<wstring, pair<CParseChText4, bool>>::iterator itr = chList.find(currentChListKey);
 		if( itr != chList.end() ){
 			SynchronizeCheckState();

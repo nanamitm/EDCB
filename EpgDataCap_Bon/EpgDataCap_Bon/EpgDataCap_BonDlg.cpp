@@ -16,6 +16,7 @@
 #ifdef EDCB_USE_DARKMODELIB
 #include <Darkmodelib.h>
 #endif
+#include "../../Common/DarkMessageBoxUtil.h"
 
 
 // CEpgDataCap_BonDlg ダイアログ
@@ -368,7 +369,7 @@ void CEpgDataCap_BonDlg::OnSysCommand(UINT nID, LPARAM lParam, BOOL* pbProcessed
 			WCHAR caption[128] = L"";
 			GetWindowText(m_hWnd, caption, 128);
 			disableKeyboardHook = TRUE;
-			int result = MessageBox( m_hWnd, L"録画中ですが終了しますか？", caption, MB_YESNO | MB_ICONQUESTION );
+			int result = DarkAwareMessageBox( m_hWnd, L"録画中ですが終了しますか？", caption, MB_YESNO | MB_ICONQUESTION );
 			disableKeyboardHook = FALSE;
 			if( result == IDNO ){
 				*pbProcessed = TRUE;
@@ -605,7 +606,7 @@ void CEpgDataCap_BonDlg::OnTimer(UINT_PTR nIDEvent)
 					if( msg.size() > 0){
 						wstring log = L"同一サービスが複数の物理チャンネルで検出されました。\r\n受信環境のよい物理チャンネルのサービスのみ残すように設定を行ってください。\r\n正常に録画できない可能性が出てきます。\r\n\r\n";
 						log += msg;
-						MessageBox(m_hWnd, log.c_str(), nullptr, MB_OK);
+						DarkAwareMessageBox(m_hWnd, log.c_str(), nullptr, MB_OK);
 					}
 				}else{
 					this->chScanWorking = FALSE;
@@ -1285,7 +1286,7 @@ void CEpgDataCap_BonDlg::OnBnClickedButtonCancel()
 		WCHAR caption[128] = L"";
 		GetWindowText(m_hWnd, caption, 128);
 		disableKeyboardHook = TRUE;
-		int result = MessageBox( m_hWnd, L"録画を停止しますか？", caption, MB_YESNO | MB_ICONQUESTION );
+		int result = DarkAwareMessageBox( m_hWnd, L"録画を停止しますか？", caption, MB_YESNO | MB_ICONQUESTION );
 		disableKeyboardHook = FALSE;
 		if( result == IDNO ){
 			return ;
