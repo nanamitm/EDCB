@@ -4,6 +4,9 @@
 #include "stdafx.h"
 #include "EpgDataCap_Bon.h"
 #include "SettingDlg.h"
+#ifdef EDCB_USE_DARKMODELIB
+#include <Darkmodelib.h>
+#endif
 
 
 // CSettingDlg ダイアログ
@@ -71,6 +74,22 @@ BOOL CSettingDlg::OnInitDialog()
 
 	TabCtrl_SetCurSel(GetDlgItem(IDC_TAB), 0);
 	ShowWindow(basicDlg.GetSafeHwnd(), SW_SHOW);
+
+#ifdef EDCB_USE_DARKMODELIB
+	//Windowsがダークモードのときだけwin32-darkmodelibでダークモードにする(ライトモードでは従来どおり)
+	if( dmlib::isDarkModeReg() ){
+		dmlib::initDarkMode();
+		if( dmlib::isEnabled() ){
+			for( int i = 0; i < 6; i++ ){
+				dmlib::setWindowEraseBgSubclass(hwndItems[i]);
+				dmlib::setWindowCtlColorSubclass(hwndItems[i]);
+				dmlib::setWindowNotifyCustomDrawSubclass(hwndItems[i]);
+				dmlib::setChildCtrlsSubclassAndTheme(hwndItems[i]);
+			}
+			dmlib::setDarkWndNotifySafe(GetSafeHwnd());
+		}
+	}
+#endif
 
 	return TRUE;  // return TRUE unless you set the focus to a control
 	// 例外 : OCX プロパティ ページは必ず FALSE を返します。

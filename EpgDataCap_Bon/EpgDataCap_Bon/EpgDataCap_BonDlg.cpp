@@ -13,6 +13,9 @@
 #include <shellapi.h>
 #include <objbase.h>
 #include "TaskbarList.h"
+#ifdef EDCB_USE_DARKMODELIB
+#include <Darkmodelib.h>
+#endif
 
 
 // CEpgDataCap_BonDlg ダイアログ
@@ -341,6 +344,16 @@ BOOL CEpgDataCap_BonDlg::OnInitDialog()
 	ReloadNWSet();
 
 	StartPipeServer();
+
+#ifdef EDCB_USE_DARKMODELIB
+	//Windowsがダークモードのときだけwin32-darkmodelibでダークモードにする(ライトモードでは従来どおり)
+	if( dmlib::isDarkModeReg() ){
+		dmlib::initDarkMode();
+		if( dmlib::isEnabled() ){
+			dmlib::setDarkWndNotifySafe(m_hWnd);
+		}
+	}
+#endif
 
 	return TRUE;  // フォーカスをコントロールに設定した場合を除き、TRUE を返します。
 }
