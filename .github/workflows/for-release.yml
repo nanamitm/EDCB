@@ -99,6 +99,8 @@ jobs:
             release.sha256
 
       - name: Push commit
+        # Only the for-release branch records release.sha256 (expectedHeadOid must match its head)
+        if: github.ref == 'refs/heads/for-release'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
