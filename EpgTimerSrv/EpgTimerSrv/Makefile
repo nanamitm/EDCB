@@ -58,6 +58,13 @@ ifeq ($(OS),Windows_NT)
     # Assume non-pthread threading model
     CPPFLAGS += -DMUST_IMPLEMENT_CLOCK_GETTIME
   endif
+
+  # win32-darkmodelib (dark mode for the setting dialog, requires C++20)
+  ifneq ($(wildcard ../../external/darkmodelib/include/Darkmodelib.h),)
+    SOURCES := $(SOURCES) $(addprefix Dmlib__,$(addsuffix .cpp,Darkmodelib DmlibColor DmlibDpi DmlibHook DmlibPaintHelper DmlibSubclass DmlibSubclassControl DmlibSubclassWindow DmlibWinApi))
+    CPPFLAGS += -DEDCB_USE_DARKMODELIB -I../../external/darkmodelib/include
+    LDLIBS += -luxtheme -ldwmapi -lgdi32 -lshlwapi
+  endif
 else
   TARGETEXT =
   CPPFLAGS := -I. -DNDEBUG -DEPGTIMERSRV_APPLICATION -DUSE_LUA -DNO_LUA_SERVER_PAGE -DUSE_IPV6 -DNO_CGI -DNO_SSI -DNO_BUILTIN_PUT_DELETE_METHODS -DNO_POPEN -DOPENSSL_API_3_0 $(CPPFLAGS)
@@ -78,6 +85,8 @@ BonCtrl__%.cpp.obj: ../../BonCtrl/%.cpp stdafx.h.gch $(DEP_ALL_H)
 	$(COMPILE.cpp) $(OUTPUT_OPTION) $<
 Common__%.cpp.obj: ../../Common/%.cpp stdafx.h.gch $(DEP_ALL_H)
 	$(COMPILE.cpp) $(OUTPUT_OPTION) $<
+Dmlib__%.cpp.obj: ../../external/darkmodelib/src/%.cpp
+	$(CXX) $(filter-out -std=c++17 -pedantic-errors,$(CXXFLAGS)) -std=c++20 -D_DARKMODELIB_NO_INI_CONFIG $(CPPFLAGS) -c $(OUTPUT_OPTION) $<
 %.cpp.obj: %.cpp stdafx.h.gch $(DEP_ALL_H) $(CUR_ALL_H)
 	$(COMPILE.cpp) $(OUTPUT_OPTION) $<
 stdafx.h.gch: stdafx.h ../../Common/Common.h targetver.h
