@@ -91,8 +91,13 @@ namespace EpgTimer
             }
         }
 
-        private void button_add_reserve_Click(object sender, RoutedEventArgs e)
+        private async void button_add_reserve_Click(object sender, RoutedEventArgs e)
         {
+            if (!IsEnabled)
+            {
+                return;
+            }
+
             try
             {
                 if (eventInfo.StartTimeFlag == 0)
@@ -130,19 +135,17 @@ namespace EpgTimer
                 reserveInfo.EventID = eventInfo.event_id;
                 reserveInfo.RecSetting = recSettingView.GetRecSetting();
 
-                List<ReserveData> list = new List<ReserveData>();
-                list.Add(reserveInfo);
-                ErrCode err = CommonManager.CreateSrvCtrl().SendAddReserve(list);
-                if (err != ErrCode.CMD_SUCCESS)
+                var cmd = CommonManager.CreateSrvCtrl();
+                if (await CommonManager.SendReserveEditAsync(this, () => cmd.SendAddReserve(new List<ReserveData>() { reserveInfo }),
+                    "予約登録でエラーが発生しました。終了時間がすでに過ぎている可能性があります。"))
                 {
-                    MessageBox.Show(CommonManager.GetErrCodeText(err) ?? "予約登録でエラーが発生しました。終了時間がすでに過ぎている可能性があります。");
+                    Close();
                 }
             }
             catch (Exception ex)
             {
                 MessageBox.Show(ex.ToString());
             }
-            Close();
         }
 
         private void button_save_program_Click(object sender, RoutedEventArgs e)

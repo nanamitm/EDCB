@@ -569,7 +569,7 @@ function PlaybackScriptTemplate(datacastLabel,live,jikkyo,caption,captionLabel)
   local zip=NVRAM_ZIP:match('^'..('[0-9]'):rep(7)..'$')
   local prefecture=math.floor(math.max(NVRAM_REGION<=50 and NVRAM_REGION or 0,0))
   return [=[
-<script type="text/javascript" src="script.js?ver=20260918" defer></script>
+<script type="text/javascript" src="script.js?ver=20261125" defer></script>
 ]=]..(USE_DATACAST and [=[
 <div class="remote-control" style="display:none">
   <button
@@ -1419,21 +1419,11 @@ function ReadJikkyoChunk(f)
   return head..payload
 end
 
---jkcnslの投稿用パイプ(ファイル)名の接頭辞
-function JkcnslPostNamePrefix(pid)
-  return 'jkcnsl_edcb_'..pid..'_'
-end
-
---起動中のjkcnslの投稿用パイプ(ファイル)名のうち最も新しいものを探す
-function FindJkcnslPostName(pid)
-  local prefix=JkcnslPostNamePrefix(pid)
-  local ret=nil
-  for i,v in ipairs(edcb.FindFile(WIN32 and '\\\\.\\pipe\\'..prefix..'*' or PathAppend(JKCNSL_UNIX_BASE_DIR,prefix..'*'),0) or {}) do
-    if v.name:find('^'..prefix:gsub('%p','%%%0')..'%d+$') and (not ret or v.name>ret) then
-      ret=v.name
-    end
+--実況ストリームごとに割り当てたjkcnslの投稿用パイプ(ファイル)名
+function JkcnslPostName(pid,token)
+  if token and #token==32 and token:match('^[0-9a-f]+$') then
+    return 'jkcnsl_edcb_'..pid..'_'..token
   end
-  return ret
 end
 
 --ビッグエンディアンの値を取得する

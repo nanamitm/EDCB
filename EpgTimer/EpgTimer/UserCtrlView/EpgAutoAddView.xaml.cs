@@ -116,89 +116,109 @@ namespace EpgTimer
 
         private void button_del_Click(object sender, RoutedEventArgs e)
         {
+            var ids = listView_key.SelectedItems.Cast<EpgAutoDataItem>().Select(item => item.EpgAutoAddInfo.dataID).ToList();
+            if (ids.Count == 0)
+            {
+                return;
+            }
+
             try
             {
-                if (listView_key.SelectedItems.Count > 0)
+                ErrCode err = CommonManager.CreateSrvCtrl().SendDelEpgAutoAdd(ids);
+                if (err != ErrCode.CMD_SUCCESS)
                 {
-                    List<uint> dataIDList = new List<uint>();
-                    foreach (EpgAutoDataItem info in listView_key.SelectedItems)
-                    {
-                        dataIDList.Add(info.EpgAutoAddInfo.dataID);
-                    }
-                    CommonManager.CreateSrvCtrl().SendDelEpgAutoAdd(dataIDList);
+                    MessageBox.Show("自動予約ルールの削除に失敗しました。\r\n" + CommonManager.GetErrCodeText(err));
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.ToString());
+                MessageBox.Show("自動予約ルールの削除に失敗しました。\r\n" + ex.Message);
             }
         }
 
         private void button_del2_Click(object sender, RoutedEventArgs e)
         {
-            if (listView_key.SelectedItems.Count == 0) { return; }
+            var selected = listView_key.SelectedItems.Cast<EpgAutoDataItem>().Select(item => item.EpgAutoAddInfo).ToList();
+            if (selected.Count == 0)
+            {
+                return;
+            }
 
-            string text1 = "予約項目ごと削除してよろしいですか?\r\n"
-                            + "(無効の「自動予約登録項目」による予約も削除されます。)";
-            string caption1 = "[予約ごと削除]の確認";
-            if (MessageBox.Show(text1, caption1, MessageBoxButton.OKCancel, 
+            string text = "予約項目ごと削除してよろしいですか?\r\n"
+                        + "(無効の「自動予約登録項目」による予約も削除されます。)";
+            if (MessageBox.Show(text, "[予約ごと削除]の確認", MessageBoxButton.OKCancel,
                 MessageBoxImage.Question, MessageBoxResult.OK) != MessageBoxResult.OK)
             {
                 return;
             }
 
-            //EpgTimerSrvでの自動予約登録の実行タイミングに左右されず確実に予約を削除するため、
-            //先に自動予約登録項目を削除する。
+            var keys = selected.Select(item => item.searchInfo.DeepClone()).ToList();
+            foreach (EpgSearchKeyInfo key in keys)
+            {
+                if (key.andKey.StartsWith("^!{999}", StringComparison.Ordinal))
+                {
+                    key.andKey = key.andKey.Substring(7);
+                }
+            }
 
-            //自動予約登録項目の検索条件を保持
-            List<EpgSearchKeyInfo> keyList = listView_key.SelectedItems.Cast<EpgAutoDataItem>().Select(a => a.EpgAutoAddInfo.searchInfo.DeepClone()).ToList();
-
-            button_del_Click(sender, e);
-
+            var cmd = CommonManager.CreateSrvCtrl();
+            string failure = "対象番組の検索に失敗しました。";
             try
             {
-                //配下の予約の削除
-
-                //検索リストの取得
-                List<EpgEventInfo> list = new List<EpgEventInfo>();
-
-                foreach (EpgSearchKeyInfo key in keyList)
+                // 削除対象を確定してからサーバーのデータを変更する。
+                var events = new List<EpgEventInfo>();
+                ErrCode err = cmd.SendSearchPg(keys, ref events);
+                if (err != ErrCode.CMD_SUCCESS)
                 {
-                    key.andKey = key.andKey.Substring(key.andKey.StartsWith("^!{999}", StringComparison.Ordinal) ? 7 : 0);//無効解除
+                    MessageBox.Show(failure + "\r\n" + CommonManager.GetErrCodeText(err));
+                    return;
                 }
 
-                CommonManager.CreateSrvCtrl().SendSearchPg(keyList, ref list);
-
-                List<uint> dellist = new List<uint>();
-
-                foreach (EpgEventInfo info in list)
+                DateTime now = DateTime.UtcNow.AddHours(9);
+                var eventKeys = new HashSet<ulong>(events
+                    .Where(info => info.StartTimeFlag != 0 &&
+                                   info.start_time.AddSeconds(info.DurationFlag == 0 ? 0 : info.durationSec) > now)
+                    .Select(info => CommonManager.Create64PgKey(info.original_network_id, info.transport_stream_id,
+                                                                info.service_id, info.event_id)));
+                var reserveIds = new List<uint>();
+                if (eventKeys.Count > 0)
                 {
-                    if (info.StartTimeFlag != 0 && info.start_time.AddSeconds(info.DurationFlag == 0 ? 0 : info.durationSec) > DateTime.UtcNow.AddHours(9))
+                    failure = "録画予約の取得に失敗しました。";
+                    var reserves = new List<ReserveData>();
+                    err = cmd.SendEnumReserve(ref reserves);
+                    if (err != ErrCode.CMD_SUCCESS)
                     {
-                        foreach (ReserveData info2 in CommonManager.Instance.DB.ReserveList.Values)
-                        {
-                            if (info.original_network_id == info2.OriginalNetworkID &&
-                                info.transport_stream_id == info2.TransportStreamID &&
-                                info.service_id == info2.ServiceID &&
-                                info.event_id == info2.EventID)
-                            {
-                                //重複したEpgEventInfoは送られてこないので、登録時の重複チェックは不要
-                                dellist.Add(info2.ReserveID);
-                                break;
-                            }
-                        }
+                        MessageBox.Show(failure + "\r\n" + CommonManager.GetErrCodeText(err));
+                        return;
+                    }
+                    reserveIds = reserves
+                        .Where(info => eventKeys.Contains(CommonManager.Create64PgKey(info.OriginalNetworkID,
+                            info.TransportStreamID, info.ServiceID, info.EventID)))
+                        .Select(info => info.ReserveID).ToList();
+                }
+
+                // 自動予約が再作成されないよう、ルールを先に削除する。
+                failure = "自動予約ルールの削除を確認できませんでした。録画予約の削除は実行していません。";
+                err = cmd.SendDelEpgAutoAdd(selected.Select(item => item.dataID).ToList());
+                if (err != ErrCode.CMD_SUCCESS)
+                {
+                    MessageBox.Show(failure + "\r\n" + CommonManager.GetErrCodeText(err));
+                    return;
+                }
+
+                if (reserveIds.Count > 0)
+                {
+                    failure = "自動予約ルールは削除しましたが、録画予約の削除を確認できませんでした。予約一覧を確認してください。";
+                    err = cmd.SendDelReserve(reserveIds);
+                    if (err != ErrCode.CMD_SUCCESS)
+                    {
+                        MessageBox.Show(failure + "\r\n" + CommonManager.GetErrCodeText(err));
                     }
                 }
-
-                if (dellist.Count > 0)
-                {
-                    CommonManager.CreateSrvCtrl().SendDelReserve(dellist);
-                }
-                
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.ToString());
+                MessageBox.Show(failure + "\r\n" + ex.Message);
             }
         }
 

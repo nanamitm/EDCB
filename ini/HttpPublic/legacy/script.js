@@ -1551,6 +1551,7 @@ const runTranscodeScript=()=>{
     let onDataStream=null;
     let onDataStreamError=null;
     let jkID=0,jkTM=0;
+    let postToken=null;
     {
       let reopen=false;
       let reconnectCount=0;
@@ -1560,6 +1561,7 @@ const runTranscodeScript=()=>{
         if(ctrl){
           ctrl.abort();
           ctrl=null;
+          postToken=null;
           if(onDataStream||(onJikkyoStream&&!shiftable)){
             reopen=true;
             setTimeout(()=>{reopen=false;openSubStream();},postCommentQuery?5000:2000);
@@ -1568,15 +1570,20 @@ const runTranscodeScript=()=>{
         }
         if(!onDataStream&&!(onJikkyoStream&&!shiftable))return;
         let mHeader=null;
-        ctrl=new AbortController();
+        const streamController=new AbortController();
+        ctrl=streamController;
         fetch((vid.fastParam?vid.initSrc.replace(/&fast=[^&]*/,"")+vid.fastParam:vid.initSrc).replace(/&ofssec=[^&]*/,"")+
               "&ofssec="+currentAbsTime()+(onDataStream?"&psidata=1":"")+
               (onJikkyoStream&&!shiftable?"&jikkyo=1&jkid="+jkID+"&jktm="+jkTM:""),{
-          signal:ctrl.signal
+          signal:streamController.signal
         }).then(response=>{
+          if(ctrl!==streamController)return;
           if(!response.ok)throw new Error(response.status+" "+response.statusText);
-          return progressPsiDataChatMixedStream(response.body.getReader(),(...args)=>{if(ctrl&&onDataStream)onDataStream(...args);},s=>{
-            if(ctrl){
+          postToken=response.headers.get("X-EDCB-Jikkyo-Post-Token");
+          return progressPsiDataChatMixedStream(response.body.getReader(),(...args)=>{
+            if(ctrl===streamController&&onDataStream)onDataStream(...args);
+          },s=>{
+            if(ctrl===streamController){
               if(!mHeader&&!!(mHeader=s.match(/^<!-- J=([0-9]+)(?:;T=([0-9]+))?/))){
                 for(const opt of selectID.options){
                   if(opt.value==mHeader[1]){
@@ -1594,7 +1601,8 @@ const runTranscodeScript=()=>{
             }
           });
         }).then(readCount=>{
-          if(ctrl){
+          if(ctrl===streamController){
+            postToken=null;
             if(onDataStreamError)onDataStreamError("Done: "+readCount+" bytes");
             if(onJikkyoStreamError&&!shiftable)onJikkyoStreamError("Done: "+readCount+" bytes");
             if(++reconnectCount>2)reconnectCount=0;
@@ -1602,7 +1610,8 @@ const runTranscodeScript=()=>{
             ctrl=null;
           }
         }).catch(e=>{
-          if(ctrl){
+          if(ctrl===streamController){
+            postToken=null;
             if(onDataStreamError)onDataStreamError(""+e);
             if(onJikkyoStreamError&&!shiftable)onJikkyoStreamError(""+e);
             if(++reconnectCount>2)reconnectCount=0;
@@ -1657,7 +1666,8 @@ const runTranscodeScript=()=>{
             fetch("comment.lua",{
               method:"POST",
               headers:{"Content-Type":"application/x-www-form-urlencoded"},
-              body:postCommentQuery+(commInput.className=="refuge"?"&refuge=1":"")+"&comm="+encodeURIComponent(commInput.value).replace(/%20/g,"+")
+              body:postCommentQuery+(postToken?"&postToken="+encodeURIComponent(postToken):"")+
+                   (commInput.className=="refuge"?"&refuge=1":"")+"&comm="+encodeURIComponent(commInput.value).replace(/%20/g,"+")
             }).then(response=>{
               if(!response.ok)throw new Error(response.status+" "+response.statusText);
             }).catch(e=>{

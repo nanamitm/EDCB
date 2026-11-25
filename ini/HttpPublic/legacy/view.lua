@@ -164,9 +164,12 @@ function OpenLiveJikkyo(pid,jkID,nid,sid)
     if not (refugeID and JKCNSL_REFUGE_URI or chatID and (not JKCNSL_REFUGE_URI or JKCNSL_REFUGE_MIXING)) then
       return 'Unable to determine chat ID.'
     end
-    -- 実況IDの切り替えなどで前回のjkcnslが終了しきる前に起動すると投稿用パイプ名が衝突して起動に失敗する。
-    -- また前回のjkcnslを閉じる処理が新しいjkcnslに届いてしまうので、投稿用パイプ名は起動ごとに変える
-    local postName=JkcnslPostNamePrefix(pid)..('%010d%03d'):format(os.time(),math.random(0,999))
+    -- 終了処理と投稿の両方を、この実況ストリーム専用のパイプに送る
+    local postToken=edcb.CreateRandom(16)
+    local postName=JkcnslPostName(pid,postToken)
+    if not postName then
+      return 'Unable to create a Jikkyo post token.'
+    end
     local cmd=(WIN32 and QuoteCommandArgForPath(JKCNSL_PATH) or FindToolsCommand(JKCNSL_PATH))..' -i -n '..postName..' -p '..pid
       ..(WIN32 and '' or ' -d '..QuoteCommandArgForPath(JKCNSL_UNIX_BASE_DIR))
       ..(JKCNSL_ANONYMITY and ' --post-as-anon' or '')..' --post-drop-dup --post-interval 2000 --post-maxlen 80'
@@ -209,7 +212,7 @@ function OpenLiveJikkyo(pid,jkID,nid,sid)
           end
         end
         f:close()
-      end
+      end,postToken
     end
   else
     local f=edcb.io.open(WIN32 and '\\\\.\\pipe\\chat_d7b64ac2_'..pid or PathAppend(JKTASK_BASE_DIR,'chat_'..pid..'.fifo'),'r')
@@ -366,7 +369,7 @@ if onid then
               end
             end
             if f and jikkyo then
-              f.jk,f.jkID,f.closeJK=OpenLiveJikkyo(pid,jkID,onid,sid)
+              f.jk,f.jkID,f.closeJK,f.jkPostToken=OpenLiveJikkyo(pid,jkID,onid,sid)
               if not f.jk then
                 if f.psi then f.psi:close() end
                 f=nil
@@ -411,7 +414,7 @@ elseif n and n<=65535 then
         end
         if f and jikkyo then
           if tonumber(pid) then
-            f.jk,f.jkID,f.closeJK=OpenLiveJikkyo(tonumber(pid),jkID)
+            f.jk,f.jkID,f.closeJK,f.jkPostToken=OpenLiveJikkyo(tonumber(pid),jkID)
           end
           if not f.jk then
             if f.psi then f.psi:close() end
@@ -431,7 +434,8 @@ if not f then
   mg.write(Response(404,nil,nil,0)..'\r\n')
 elseif psidata or jikkyo then
   -- PSI/SI、実況、またはその混合データストリームを返す
-  mg.write(Response(200,mg.get_mime_type(fname),'utf-8')..'Content-Disposition: filename='..fname..'\r\n\r\n')
+  mg.write(Response(200,mg.get_mime_type(fname),'utf-8')..'Content-Disposition: filename='..fname..'\r\n'
+    ..(f.jkPostToken and 'X-EDCB-Jikkyo-Post-Token: '..f.jkPostToken..'\r\n' or '')..'\r\n')
   if mg.request_info.request_method~='HEAD' then
     trailerSize=0
     trailerRemainSize=0

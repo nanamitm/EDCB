@@ -164,8 +164,13 @@ namespace EpgTimer
             }
         }
 
-        private void button_chg_reserve_Click(object sender, RoutedEventArgs e)
+        private async void button_chg_reserve_Click(object sender, RoutedEventArgs e)
         {
+            if (!IsEnabled)
+            {
+                return;
+            }
+
             var info = new ReserveData();
             if (reserveInfo != null)
             {
@@ -232,36 +237,30 @@ namespace EpgTimer
                 info.RecSetting.PittariFlag = 0;
             }
 
-            if (reserveInfo != null)
-            {
-                ErrCode err = CommonManager.CreateSrvCtrl().SendChgReserve(new List<ReserveData>() { info });
-                if (err != ErrCode.CMD_SUCCESS)
-                {
-                    MessageBox.Show(CommonManager.GetErrCodeText(err) ?? "予約変更でエラーが発生しました。");
-                }
-            }
-            else
+            bool changing = reserveInfo != null;
+            if (!changing)
             {
                 info.StartTimeEpg = info.StartTime;
-                ErrCode err = CommonManager.CreateSrvCtrl().SendAddReserve(new List<ReserveData>() { info });
-                if (err != ErrCode.CMD_SUCCESS)
-                {
-                    MessageBox.Show(CommonManager.GetErrCodeText(err) ?? "予約追加でエラーが発生しました。");
-                }
             }
-            Close();
+            var cmd = CommonManager.CreateSrvCtrl();
+            var items = new List<ReserveData>() { info };
+            if (await CommonManager.SendReserveEditAsync(this, () => changing ? cmd.SendChgReserve(items) : cmd.SendAddReserve(items),
+                changing ? "予約変更でエラーが発生しました。" : "予約追加でエラーが発生しました。"))
+            {
+                Close();
+            }
         }
 
-        private void button_del_reserve_Click(object sender, RoutedEventArgs e)
+        private async void button_del_reserve_Click(object sender, RoutedEventArgs e)
         {
-            if (reserveInfo != null)
+            if (IsEnabled && reserveInfo != null)
             {
-                ErrCode err = CommonManager.CreateSrvCtrl().SendDelReserve(new List<uint>() { reserveInfo.ReserveID });
-                if (err != ErrCode.CMD_SUCCESS)
+                var cmd = CommonManager.CreateSrvCtrl();
+                var ids = new List<uint>() { reserveInfo.ReserveID };
+                if (await CommonManager.SendReserveEditAsync(this, () => cmd.SendDelReserve(ids), "予約削除でエラーが発生しました。"))
                 {
-                    MessageBox.Show(CommonManager.GetErrCodeText(err) ?? "予約削除でエラーが発生しました。");
+                    Close();
                 }
-                Close();
             }
         }
 

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net.Sockets;
 using System.Text;
 
 namespace EpgTimer
@@ -520,7 +521,7 @@ namespace EpgTimer
             this.ip = ip;
             this.port = port;
         }
-        /// <summary>接続処理時のタイムアウト設定</summary>
+        /// <summary>接続処理時のタイムアウト設定(TCPの送受信には使わない)</summary>
         public void SetConnectTimeOut(int timeOut)
         {
             connectTimeOut = timeOut;
@@ -734,27 +735,54 @@ namespace EpgTimer
             return n;
         }
 
+        /// <summary>TCPの送受信でデータが途絶えたとみなすまでの時間。応答全体の上限ではないので、大きな応答も受信し続けられる</summary>
+        private const int tcpIdleTimeOut = 60000;
+
+        private static bool ReadTcpResponse(NetworkStream stream, byte[] buffer)
+        {
+            int offset = 0;
+            while (offset < buffer.Length)
+            {
+                int size = stream.Read(buffer, offset, buffer.Length - offset);
+                if (size == 0)
+                {
+                    return false;
+                }
+                offset += size;
+            }
+            return true;
+        }
+
         private ErrCode SendTCP(CtrlCmd param, MemoryStream send, ref MemoryStream res)
         {
+            if (ip == null)
             {
-                if (ip == null)
+                return ErrCode.CMD_ERR_CONNECT;
+            }
+
+            using (var tcp = new TcpClient(ip.AddressFamily))
+            {
+                try
+                {
+                    // タイムアウトした接続はTcpClientの破棄で中止する。
+                    if (!tcp.ConnectAsync(ip, (int)port).Wait(connectTimeOut))
+                    {
+                        return ErrCode.CMD_ERR_TIMEOUT;
+                    }
+                }
+                catch (AggregateException ex) when (ex.InnerException is SocketException)
                 {
                     return ErrCode.CMD_ERR_CONNECT;
                 }
-                // 接続
-                using (var tcp = new System.Net.Sockets.TcpClient(ip.AddressFamily))
+                catch (SocketException)
                 {
-                    try
+                    return ErrCode.CMD_ERR_CONNECT;
+                }
+
+                try
+                {
+                    using (NetworkStream stream = tcp.GetStream())
                     {
-                        tcp.Connect(ip, (int)port);
-                    }
-                    catch (System.Net.Sockets.SocketException)
-                    {
-                        return ErrCode.CMD_ERR_CONNECT;
-                    }
-                    using (System.Net.Sockets.NetworkStream ns = tcp.GetStream())
-                    {
-                        // 送信
                         var head = new byte[8 + (send == null ? 0 : send.Length)];
                         BitConverter.GetBytes((uint)param).CopyTo(head, 0);
                         BitConverter.GetBytes((uint)(send == null ? 0 : send.Length)).CopyTo(head, 4);
@@ -763,21 +791,35 @@ namespace EpgTimer
                             send.Close();
                             send.ToArray().CopyTo(head, 8);
                         }
-                        ns.Write(head, 0, head.Length);
-                        // 受信
-                        if (ReadAll(ns, head, 0, 8) != 8)
+
+                        // 送受信は無通信の時間で打ち切る。サーバーの処理や回線が遅くても、データが届き続ける限り待つ
+                        stream.WriteTimeout = tcpIdleTimeOut;
+                        stream.ReadTimeout = tcpIdleTimeOut;
+                        stream.Write(head, 0, head.Length);
+                        var responseHeader = new byte[8];
+                        if (!ReadTcpResponse(stream, responseHeader))
                         {
                             return ErrCode.CMD_ERR_DISCONNECT;
                         }
-                        uint resParam = BitConverter.ToUInt32(head, 0);
-                        var resData = new byte[BitConverter.ToUInt32(head, 4)];
-                        if (ReadAll(ns, resData, 0, resData.Length) != resData.Length)
+                        uint resParam = BitConverter.ToUInt32(responseHeader, 0);
+                        var resData = new byte[BitConverter.ToUInt32(responseHeader, 4)];
+                        if (!ReadTcpResponse(stream, resData))
                         {
                             return ErrCode.CMD_ERR_DISCONNECT;
                         }
                         res = new MemoryStream(resData, false);
                         return Enum.IsDefined(typeof(ErrCode), resParam) ? (ErrCode)resParam : ErrCode.CMD_ERR;
                     }
+                }
+                catch (IOException ex) when (ex.InnerException is SocketException socketError &&
+                                             (socketError.SocketErrorCode == SocketError.TimedOut ||
+                                              socketError.SocketErrorCode == SocketError.WouldBlock))
+                {
+                    return ErrCode.CMD_ERR_TIMEOUT;
+                }
+                catch (IOException)
+                {
+                    return ErrCode.CMD_ERR_DISCONNECT;
                 }
             }
         }

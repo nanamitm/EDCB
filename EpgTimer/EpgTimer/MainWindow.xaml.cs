@@ -57,8 +57,10 @@ namespace EpgTimer
 
 #if NETCOREAPP
 #pragma warning disable WPF0001
-            if (Application.Current.ThemeMode != ThemeMode.None)
+            if (Settings.Instance.NoStyle != 0)
             {
+                //OSのテーマ設定に従う場合はFluentを使う
+                Application.Current.ThemeMode = ThemeMode.System;
                 //アプリのResourceDictionaryをFluent用のものに置き換える
                 Application.Current.Resources.MergedDictionaries.Remove(
                     Application.Current.Resources.MergedDictionaries.First(a => a.Source != null && a.Source.OriginalString == "/App.rd.xaml"));

@@ -147,84 +147,169 @@ namespace EpgTimer
                     popup_rename.IsOpen = true;
                     textBox_recFilePath.Text = recInfo.RecFilePath;
                 }
-                else
+                else if (RenameRecording(recInfo.RecFilePath, destPath))
                 {
-                    // データベースを変更
-                    ErrCode err = ErrCode.CMD_ERR;
-                    string originalPath = recInfo.RecFilePath;
                     recInfo.RecFilePath = destPath;
+                }
+                textBox_recFilePath_TextChanged(null, null);
+            }
+        }
+
+        private bool RenameRecording(string originalPath, string destPath)
+        {
+            var cmd = CommonManager.CreateSrvCtrl();
+            var current = new RecFileInfo();
+            bool moved = false;
+            try
+            {
+                if (cmd.SendGetRecInfo(recInfo.ID, ref current) != ErrCode.CMD_SUCCESS ||
+                    !string.Equals(current.RecFilePath, originalPath, StringComparison.Ordinal))
+                {
+                    MessageBox.Show("録画済み情報を確認できませんでした。一覧を更新してからやり直してください。");
+                    return false;
+                }
+
+                try
+                {
+                    File.Move(originalPath, destPath);
+                    moved = true;
+                }
+                catch (IOException ex) when (ex is FileNotFoundException || ex is DirectoryNotFoundException)
+                {
+                    // 手動で移動済みの場合(元のフォルダーごと無くなった場合を含む)は、既存ファイルへの関連付けを確認する。
+                    bool destinationExists;
                     try
                     {
-                        err = CommonManager.CreateSrvCtrl().SendChgPathRecInfo(new List<RecFileInfo>() { recInfo });
-                        if (err != ErrCode.CMD_SUCCESS)
+                        destinationExists = true;
+                        if ((File.GetAttributes(destPath) & FileAttributes.Directory) != 0)
                         {
-                            MessageBox.Show(CommonManager.GetErrCodeText(err) ?? "ファイル名の変更に失敗しました。");
+                            throw new IOException("移動先と同名のフォルダーがあります: " + destPath);
                         }
                     }
-                    catch (Exception ex)
+                    catch (FileNotFoundException)
                     {
-                        MessageBox.Show(ex.ToString());
+                        destinationExists = false;
                     }
-                    if (err != ErrCode.CMD_SUCCESS)
+                    if (destinationExists &&
+                        MessageBox.Show("元の録画ファイルが見つかりません。次のファイルをこの録画済み情報に関連付けますか？\r\n" + destPath,
+                            "録画ファイルの関連付け", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes)
                     {
-                        textBox_recFilePath.Text = recInfo.RecFilePath = originalPath;
-                    }
-                    else
-                    {
-                        // ファイルが存在すれば移動する
-                        try
-                        {
-                            File.Move(originalPath, destPath);
-                        }
-                        catch (FileNotFoundException) { }
-                        catch
-                        {
-                            MessageBox.Show("移動に失敗しました: " + originalPath, "", MessageBoxButton.OK, MessageBoxImage.Warning);
-                        }
-                        try
-                        {
-                            // 拡張子が付加されたファイルも移動する
-                            foreach (string path in Directory.GetFiles(Path.GetDirectoryName(originalPath), Path.GetFileName(originalPath) + ".*"))
-                            {
-                                if (path.Length > originalPath.Length &&
-                                    string.Compare(path, 0, originalPath, 0, originalPath.Length, StringComparison.OrdinalIgnoreCase) == 0)
-                                {
-                                    try
-                                    {
-                                        File.Move(path, destPath + path.Substring(originalPath.Length));
-                                    }
-                                    catch
-                                    {
-                                        MessageBox.Show("移動に失敗しました: " + path, "", MessageBoxButton.OK, MessageBoxImage.Warning);
-                                    }
-                                }
-                            }
-                        }
-                        catch { }
-
-                        // 録画情報保存フォルダのファイルも移動する
-                        string recInfoFolder = IniFileHandler.GetPrivateProfileString("SET", "RecInfoFolder", "", SettingPath.CommonIniPath);
-                        if (recInfoFolder.Length > 0)
-                        {
-                            foreach (string suffix in new string[] { ".err", ".program.txt" })
-                            {
-                                string path = "";
-                                try
-                                {
-                                    path = Path.Combine(recInfoFolder, Path.GetFileName(originalPath) + suffix);
-                                    File.Move(path, Path.Combine(recInfoFolder, Path.GetFileName(destPath) + suffix));
-                                }
-                                catch (FileNotFoundException) { }
-                                catch
-                                {
-                                    MessageBox.Show("移動に失敗しました: " + path, "", MessageBoxButton.OK, MessageBoxImage.Warning);
-                                }
-                            }
-                        }
+                        return false;
                     }
                 }
             }
-            button_rename.IsEnabled = false;
+            catch (Exception ex)
+            {
+                MessageBox.Show("録画ファイルを移動できませんでした。\r\n" + ex.Message);
+                return false;
+            }
+
+            var change = new RecFileInfo
+            {
+                ID = current.ID,
+                RecFilePath = destPath,
+                StartTime = current.StartTime,
+                StartTimeEpg = current.StartTimeEpg,
+            };
+            string error;
+            try
+            {
+                ErrCode err = cmd.SendChgPathRecInfo(new List<RecFileInfo>() { change });
+                error = err == ErrCode.CMD_SUCCESS ? null : CommonManager.GetErrCodeText(err) ?? "録画済み情報の更新に失敗しました。";
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+            }
+
+            if (error != null)
+            {
+                // 応答が途切れた場合も、サーバーに反映済みかどうかを確認してから戻す。
+                var updated = new RecFileInfo();
+                try
+                {
+                    if (cmd.SendGetRecInfo(recInfo.ID, ref updated) == ErrCode.CMD_SUCCESS)
+                    {
+                        if (string.Equals(updated.RecFilePath, destPath, StringComparison.Ordinal))
+                        {
+                            error = null;
+                        }
+                        else if (moved && string.Equals(updated.RecFilePath, originalPath, StringComparison.Ordinal))
+                        {
+                            File.Move(destPath, originalPath);
+                            moved = false;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    error += "\r\n" + ex.Message;
+                }
+
+                if (error != null)
+                {
+                    MessageBox.Show(error + (moved ? "\r\n録画ファイルの移動先: " + destPath : ""));
+                    return false;
+                }
+            }
+
+            MoveRecordingSidecars(originalPath, destPath);
+            return true;
+        }
+
+        private static void MoveRecordingSidecars(string originalPath, string destPath)
+        {
+            try
+            {
+                // 拡張子が付加されたファイルも移動する。
+                foreach (string path in Directory.GetFiles(Path.GetDirectoryName(originalPath), Path.GetFileName(originalPath) + ".*"))
+                {
+                    if (path.Length > originalPath.Length && path.StartsWith(originalPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        MoveRecordingSidecar(path, destPath + path.Substring(originalPath.Length));
+                    }
+                }
+            }
+            catch (DirectoryNotFoundException) { }
+            catch (Exception ex)
+            {
+                MessageBox.Show("関連ファイルを確認できませんでした。\r\n" + ex.Message);
+            }
+
+            try
+            {
+                string recInfoFolder = IniFileHandler.GetPrivateProfileString("SET", "RecInfoFolder", "", SettingPath.CommonIniPath);
+                if (recInfoFolder.Length > 0)
+                {
+                    foreach (string suffix in new[] { ".err", ".program.txt" })
+                    {
+                        MoveRecordingSidecar(Path.Combine(recInfoFolder, Path.GetFileName(originalPath) + suffix),
+                                             Path.Combine(recInfoFolder, Path.GetFileName(destPath) + suffix));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("録画情報保存フォルダーを処理できませんでした。\r\n" + ex.Message);
+            }
+        }
+
+        private static void MoveRecordingSidecar(string source, string destination)
+        {
+            if (string.Equals(source, destination, StringComparison.Ordinal))
+            {
+                return;
+            }
+            try
+            {
+                File.Move(source, destination);
+            }
+            catch (FileNotFoundException) { }
+            catch (DirectoryNotFoundException) { }
+            catch (Exception ex)
+            {
+                MessageBox.Show("移動に失敗しました: " + source + "\r\n" + ex.Message);
+            }
         }
 
         private void button_play_Click(object sender, RoutedEventArgs e)

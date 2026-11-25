@@ -37,8 +37,7 @@ if pid then
     comm=mail..(refuge and ' refuge' or ' nico')..comm
     code=405
     if JKCNSL_PATH then
-      -- 投稿用パイプ名はjkcnslの起動ごとに変わるので最も新しいものを探す
-      postName=FindJkcnslPostName(pid)
+      local postName=JkcnslPostName(pid,mg.get_var(query,'postToken'))
       if not postName then
         fpost=nil
       elseif WIN32 then
