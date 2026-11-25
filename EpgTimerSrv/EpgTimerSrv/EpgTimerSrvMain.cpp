@@ -2676,8 +2676,8 @@ void CEpgTimerSrvMain::CtrlCmdCallback(CEpgTimerSrvMain* sys, const CCmdStream& 
 			AddDebugLog(L"CMD2_EPG_SRV_CHG_PROTECT_RECINFO2");
 			WORD ver;
 			vector<REC_FILE_INFO> list;
-			if( cmd.ReadVALUE2WithVersion(&ver, &list) ){
-				sys->reserveManager.ChgProtectRecFileInfo(list);
+			if( cmd.ReadVALUE2WithVersion(&ver, &list) &&
+			    sys->reserveManager.ChgProtectRecFileInfo(list) ){
 				res.WriteVALUE(ver);
 				res.SetParam(CMD_SUCCESS);
 			}
@@ -4177,9 +4177,11 @@ int CEpgTimerSrvMain::LuaChgProtectRecFileInfo(lua_State* L)
 		vector<REC_FILE_INFO> list(1);
 		list.front().id = (DWORD)lua_tointeger(L, 1);
 		list.front().protectFlag = lua_toboolean(L, 2) ? 1 : 0;
-		ws.sys->reserveManager.ChgProtectRecFileInfo(list);
+		lua_pushboolean(L, ws.sys->reserveManager.ChgProtectRecFileInfo(list));
+		return 1;
 	}
-	return 0;
+	lua_pushboolean(L, false);
+	return 1;
 }
 
 int CEpgTimerSrvMain::LuaDelRecFileInfo(lua_State* L)

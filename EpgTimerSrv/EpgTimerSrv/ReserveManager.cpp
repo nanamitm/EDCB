@@ -13,6 +13,9 @@ CReserveManager::CReserveManager(CNotifyManager& notifyManager_, CEpgDBManager& 
 	, epgCapWork(false)
 	, shutdownModePending(-1)
 	, reserveModified(false)
+	, reserveTextUnsaved(false)
+	, recInfoTextUnsaved(false)
+	, recInfo2TextUnsaved(false)
 	, recInfo2SearchStartTime(LLONG_MAX)
 {
 }
@@ -77,8 +80,38 @@ void CReserveManager::Finalize()
 			RestoreEpgCapBasicOnlyFlags();
 			this->epgCapWork = false;
 		}
+		//終了前に最後の保存を試みる
+		RetryUnsavedText();
 	}
 	this->tunerBankMap.clear();
+}
+
+bool CReserveManager::RecordSaveResult(bool saved, bool& unsaved, LPCWSTR caller, LPCWSTR target)
+{
+	if( saved == false ){
+		AddDebugLogFormat(L"CReserveManager::%ls(): Cannot save %ls (will retry)", caller, target);
+	}
+	unsaved = saved == false;
+	return saved;
+}
+
+void CReserveManager::RetryUnsavedText()
+{
+	lock_recursive_mutex lock(this->managerLock);
+
+	//ファイル全体を書き出すので、成功すればそれまでの未保存の変更もすべて保存される
+	if( this->reserveTextUnsaved && this->reserveText.SaveText() ){
+		this->reserveTextUnsaved = false;
+		AddDebugLog(L"CReserveManager::RetryUnsavedText(): Saved reservations");
+	}
+	if( this->recInfoTextUnsaved && this->recInfoText.SaveText() ){
+		this->recInfoTextUnsaved = false;
+		AddDebugLog(L"CReserveManager::RetryUnsavedText(): Saved recording history");
+	}
+	if( this->recInfo2TextUnsaved && this->recInfo2Text.SaveText() ){
+		this->recInfo2TextUnsaved = false;
+		AddDebugLog(L"CReserveManager::RetryUnsavedText(): Saved recorded event list");
+	}
 }
 
 void CReserveManager::RestoreEpgCapBasicOnlyFlags()
@@ -294,9 +327,14 @@ bool CReserveManager::AddReserveData(const vector<RESERVE_DATA>& reserveList, bo
 		if( pendingReserveText.SaveText() == false ){
 			AddDebugLog(L"CReserveManager::AddReserveData(): Cannot save reservations");
 			if( applyIfUnsaved == false ){
+				//反映しないので、未保存の状態は呼び出し前と変わらない
 				return false;
 			}
-			//録画に必要な変更なのでメモリ上には反映する。次に保存できたときにまとめて書き出される
+			//録画に必要な変更なのでメモリ上には反映する。後で再試行して書き出す
+			this->reserveTextUnsaved = true;
+		}else{
+			//メモリ上の内容がすべて保存された
+			this->reserveTextUnsaved = false;
 		}
 		this->reserveText = std::move(pendingReserveText);
 		this->reserveModified = true;
@@ -469,9 +507,14 @@ bool CReserveManager::ChgReserveData(const vector<RESERVE_DATA>& reserveList, bo
 		if( pendingReserveText.SaveText() == false ){
 			AddDebugLog(L"CReserveManager::ChgReserveData(): Cannot save reservations");
 			if( applyIfUnsaved == false ){
+				//反映しないので、未保存の状態は呼び出し前と変わらない
 				return false;
 			}
-			//録画に必要な変更なのでメモリ上には反映する。次に保存できたときにまとめて書き出される
+			//録画に必要な変更なのでメモリ上には反映する。後で再試行して書き出す
+			this->reserveTextUnsaved = true;
+		}else{
+			//メモリ上の内容がすべて保存された
+			this->reserveTextUnsaved = false;
 		}
 		for( const auto& change : bankChanges ){
 			change();
@@ -505,6 +548,8 @@ bool CReserveManager::DelReserveData(const vector<DWORD>& idList)
 		AddDebugLog(L"CReserveManager::DelReserveData(): Cannot save reservations");
 		return false;
 	}
+	//メモリ上の内容がすべて保存された
+	this->reserveTextUnsaved = false;
 
 	vector<CTunerBankCtrl::CHECK_RESULT> retList;
 	LONGLONG minStartTime = LLONG_MAX;
@@ -604,10 +649,11 @@ void CReserveManager::DelRecFileInfo(const vector<DWORD>& idList)
 {
 	lock_recursive_mutex lock(this->managerLock);
 
+	//録画ファイルの削除を伴うことがあり取り消せないので、メモリ上には必ず反映する
 	for( DWORD id : idList ){
 		this->recInfoText.DelRecInfo(id);
 	}
-	this->recInfoText.SaveText();
+	RecordSaveResult(this->recInfoText.SaveText(), this->recInfoTextUnsaved, L"DelRecFileInfo", L"recording history");
 	AddNotifyAndPostBat(NOTIFY_UPDATE_REC_INFO);
 }
 
@@ -629,19 +675,31 @@ bool CReserveManager::ChgPathRecFileInfo(const vector<REC_FILE_INFO>& infoList)
 		return false;
 	}
 	this->recInfoText = std::move(pendingRecInfo);
+	this->recInfoTextUnsaved = false;
 	AddNotifyAndPostBat(NOTIFY_UPDATE_REC_INFO);
 	return true;
 }
 
-void CReserveManager::ChgProtectRecFileInfo(const vector<REC_FILE_INFO>& infoList)
+bool CReserveManager::ChgProtectRecFileInfo(const vector<REC_FILE_INFO>& infoList)
 {
 	lock_recursive_mutex lock(this->managerLock);
 
-	for( const REC_FILE_INFO& item : infoList ){
-		this->recInfoText.ChgProtectRecInfo(item.id, item.protectFlag);
+	if( infoList.empty() ){
+		return true;
 	}
-	this->recInfoText.SaveText();
+	//保存できたときだけ反映する(再起動でプロテクトが外れて自動削除されるのを防ぐ)
+	CParseRecInfoText pendingRecInfo = this->recInfoText;
+	for( const REC_FILE_INFO& item : infoList ){
+		pendingRecInfo.ChgProtectRecInfo(item.id, item.protectFlag);
+	}
+	if( pendingRecInfo.SaveText() == false ){
+		AddDebugLog(L"CReserveManager::ChgProtectRecFileInfo(): Cannot save recording history");
+		return false;
+	}
+	this->recInfoText = std::move(pendingRecInfo);
+	this->recInfoTextUnsaved = false;
 	AddNotifyAndPostBat(NOTIFY_UPDATE_REC_INFO);
+	return true;
 }
 
 void CReserveManager::ReloadBankMap(LONGLONG reloadTime)
@@ -1412,8 +1470,9 @@ void CReserveManager::CheckOverTimeReserve()
 		}
 	}
 	if( modified ){
-		this->reserveText.SaveText();
-		this->recInfoText.SaveText();
+		//終わってしまった予約の処理なのでメモリ上には必ず反映し、保存できなければ後で再試行する
+		RecordSaveResult(this->reserveText.SaveText(), this->reserveTextUnsaved, L"CheckOverTimeReserve", L"reservations");
+		RecordSaveResult(this->recInfoText.SaveText(), this->recInfoTextUnsaved, L"CheckOverTimeReserve", L"recording history");
 		AddNotifyAndPostBat(NOTIFY_UPDATE_RESERVE_INFO);
 		AddNotifyAndPostBat(NOTIFY_UPDATE_REC_INFO);
 	}
@@ -1537,11 +1596,12 @@ void CReserveManager::ProcessRecEnd(const vector<CTunerBankCtrl::CHECK_RESULT>& 
 		}
 	}
 	if( modified ){
+		//終わった録画の処理なのでメモリ上には必ず反映し、保存できなければ後で再試行する
 		if( reserveSaved == false ){
-			this->reserveText.SaveText();
+			RecordSaveResult(this->reserveText.SaveText(), this->reserveTextUnsaved, L"ProcessRecEnd", L"reservations");
 		}
-		this->recInfoText.SaveText();
-		this->recInfo2Text.SaveText();
+		RecordSaveResult(this->recInfoText.SaveText(), this->recInfoTextUnsaved, L"ProcessRecEnd", L"recording history");
+		RecordSaveResult(this->recInfo2Text.SaveText(), this->recInfo2TextUnsaved, L"ProcessRecEnd", L"recorded event list");
 		AddNotifyAndPostBat(NOTIFY_UPDATE_RESERVE_INFO);
 		AddNotifyAndPostBat(NOTIFY_UPDATE_REC_INFO);
 		AddPostBatWork(batWorkList, L"PostRecEnd");
@@ -1578,6 +1638,8 @@ pair<CReserveManager::CHECK_STATUS, int> CReserveManager::Check()
 	if( this->checkCount % 30 == 0 ){
 		CheckAutoDel();
 		CheckOverTimeReserve();
+		//保存に失敗したままの情報があれば再試行する
+		RetryUnsavedText();
 	}
 	if( this->checkCount % 3 == 0 ){
 		CheckTuijyuTuner();

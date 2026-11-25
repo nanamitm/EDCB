@@ -54,7 +54,8 @@ public:
 	bool ChgPathRecFileInfo(const vector<REC_FILE_INFO>& infoList);
 	//録画済み情報のプロテクトを変更する
 	//infoList: 録画済み情報一覧(idとprotectFlagのみ参照)
-	void ChgProtectRecFileInfo(const vector<REC_FILE_INFO>& infoList);
+	//戻り値: 変更を保存できたか(保存できなければ変更しない)
+	bool ChgProtectRecFileInfo(const vector<REC_FILE_INFO>& infoList);
 	//EIT[schedule]をもとに追従処理する
 	void CheckTuijyu();
 	//予約管理する
@@ -155,6 +156,11 @@ private:
 	bool CheckEpgCap(bool isEpgCap);
 	//EPG取得開始時に一時変更したBasicOnly設定を書き戻す
 	void RestoreEpgCapBasicOnlyFlags();
+	//メモリ上に反映済みの変更の保存結果を記録する。失敗したものはRetryUnsavedText()で再試行される
+	//戻り値: saved
+	static bool RecordSaveResult(bool saved, bool& unsaved, LPCWSTR caller, LPCWSTR target);
+	//保存に失敗したままの情報があれば保存を再試行する
+	void RetryUnsavedText();
 	//予約開始(視聴を除く)の最小時刻を取得する
 	LONGLONG GetNearestRecReserveTime() const;
 	//次のEPG取得時刻を取得する
@@ -199,6 +205,10 @@ private:
 	int epgCapBasicOnlyFlags;
 	int shutdownModePending;
 	bool reserveModified;
+	//メモリ上の内容をファイルに保存できていない
+	bool reserveTextUnsaved;
+	bool recInfoTextUnsaved;
+	bool recInfo2TextUnsaved;
 	mutable vector<pair<wstring, DWORD>> recInfo2SearchCache;
 	mutable LONGLONG recInfo2SearchStartTime;
 
