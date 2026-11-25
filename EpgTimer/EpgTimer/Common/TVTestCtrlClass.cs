@@ -163,46 +163,74 @@ namespace EpgTimer
                     }
                 }
 
-                OpenTVTest(1000, false);
-                var cmdTvTest = new CtrlCmdUtil();
-                cmdTvTest.SetPipeSetting("Global\\TvTest_Ctrl_BonConnect_" + process.Id, "TvTest_Ctrl_BonPipe_" + process.Id);
-                cmdTvTest.SetConnectTimeOut(1000);
+                // TVTestに渡せなかったときは開いたストリーミングを閉じる(残るとサーバーが休止できなくなる)
+                bool sent = false;
+                try
+                {
+                    OpenTVTest(1000, false);
+                    var cmdTvTest = new CtrlCmdUtil();
+                    cmdTvTest.SetPipeSetting("Global\\TvTest_Ctrl_BonConnect_" + process.Id, "TvTest_Ctrl_BonPipe_" + process.Id);
+                    cmdTvTest.SetConnectTimeOut(1000);
 
-                sendInfo.enableMode = 1;
-                if (Settings.Instance.NwTvModeTCP && Settings.Instance.NwTvModePipe)
-                {
-                    // ネットワーク接続を使わない
-                    sendInfo.serverIP = 1;
-                    sendInfo.serverPort = 0;
-                }
-                else if (CommonManager.Instance.NWMode == false)
-                {
-                    sendInfo.serverIP = 0x7F000001;
-                    // 原作はここで自ホスト名を取得して解決したアドレスを格納している。(ないとは思うが)不具合があれば戻すこと
-                    sendInfo.serverPort = (uint)IniFileHandler.GetPrivateProfileInt("SET", "TCPPort", 4510, SettingPath.TimerSrvIniPath);
-                }
-                else
-                {
-                    sendInfo.serverIP = 0x7F000001;
-                    IPAddress srvIP = CommonManager.Instance.NWConnectedIP;
-                    if (srvIP != null && srvIP.GetAddressBytes().Length == 4)
+                    sendInfo.enableMode = 1;
+                    if (Settings.Instance.NwTvModeTCP && Settings.Instance.NwTvModePipe)
                     {
-                        byte[] oct = srvIP.GetAddressBytes();
-                        sendInfo.serverIP = (uint)oct[0] << 24 | (uint)oct[1] << 16 | (uint)oct[2] << 8 | oct[3];
+                        // ネットワーク接続を使わない
+                        sendInfo.serverIP = 1;
+                        sendInfo.serverPort = 0;
                     }
-                    sendInfo.serverPort = CommonManager.Instance.NWConnectedPort;
+                    else if (CommonManager.Instance.NWMode == false)
+                    {
+                        sendInfo.serverIP = 0x7F000001;
+                        // 原作はここで自ホスト名を取得して解決したアドレスを格納している。(ないとは思うが)不具合があれば戻すこと
+                        sendInfo.serverPort = (uint)IniFileHandler.GetPrivateProfileInt("SET", "TCPPort", 4510, SettingPath.TimerSrvIniPath);
+                    }
+                    else
+                    {
+                        sendInfo.serverIP = 0x7F000001;
+                        IPAddress srvIP = CommonManager.Instance.NWConnectedIP;
+                        if (srvIP != null && srvIP.GetAddressBytes().Length == 4)
+                        {
+                            byte[] oct = srvIP.GetAddressBytes();
+                            sendInfo.serverIP = (uint)oct[0] << 24 | (uint)oct[1] << 16 | (uint)oct[2] << 8 | oct[3];
+                        }
+                        sendInfo.serverPort = CommonManager.Instance.NWConnectedPort;
+                    }
+                    if (Settings.Instance.NwTvModeUDP == true)
+                    {
+                        sendInfo.udpSend = 1;
+                    }
+                    if (Settings.Instance.NwTvModeTCP == true)
+                    {
+                        sendInfo.tcpSend = 1;
+                    }
+                    for (int i = 0; i < 10; i++)
+                    {
+                        if (i > 0)
+                        {
+                            System.Threading.Thread.Sleep(1000);
+                        }
+                        if (cmdTvTest.SendViewSetStreamingInfo(sendInfo) == ErrCode.CMD_SUCCESS)
+                        {
+                            sent = true;
+                            break;
+                        }
+                    }
                 }
-                if (Settings.Instance.NwTvModeUDP == true)
+                finally
                 {
-                    sendInfo.udpSend = 1;
+                    if (sent == false)
+                    {
+                        try
+                        {
+                            CommonManager.CreateSrvCtrl().SendNwPlayClose(sendInfo.ctrlID);
+                        }
+                        catch { }
+                    }
                 }
-                if (Settings.Instance.NwTvModeTCP == true)
+                if (sent == false)
                 {
-                    sendInfo.tcpSend = 1;
-                }
-                for (int i = 0; i < 10 && cmdTvTest.SendViewSetStreamingInfo(sendInfo) != ErrCode.CMD_SUCCESS; i++)
-                {
-                    System.Threading.Thread.Sleep(1000);
+                    return "TVTestにストリーミングの情報を送れませんでした";
                 }
 
                 WakeupWindow(process.MainWindowHandle);
@@ -276,8 +304,18 @@ namespace EpgTimer
                     if (type == "View")
                     {
                         // TVTestではなさそうなViewアプリは除外する(※EpgDataCap_BonもViewアプリ)
-                        if (p.ProcessName.Equals(System.IO.Path.GetFileNameWithoutExtension(Settings.Instance.TvTestExe),
-                                                 StringComparison.OrdinalIgnoreCase) == false)
+                        string processName;
+                        try
+                        {
+                            processName = p.ProcessName;
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            // 列挙後に終了したプロセス
+                            continue;
+                        }
+                        if (processName.Equals(System.IO.Path.GetFileNameWithoutExtension(Settings.Instance.TvTestExe),
+                                               StringComparison.OrdinalIgnoreCase) == false)
                         {
                             continue;
                         }
