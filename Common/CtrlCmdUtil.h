@@ -260,7 +260,8 @@ bool CCUTIL_ReadVectorVALUE_( WORD ver, const BYTE** buff, const BYTE* buffEnd, 
 	if( rb == nullptr ){
 		return false;
 	}
-	val->reserve(val->size() + valCount);
+	//件数は受信データ由来なので、残りのデータ量で入りうる数より多くは確保しない
+	val->reserve(val->size() + (std::min<size_t>)(valCount, (size_t)(buffEnd - rb)));
 
 	for( DWORD i=0; i < valCount; i++ ){
 		val->emplace_back();
@@ -333,6 +334,9 @@ public:
 
 	//送信時コマンド、受信時エラーコードをセットする
 	void SetParam(DWORD param);
+
+	//受信するコマンド(要求)のデータサイズの上限。正当な要求はこれより十分小さい
+	static const DWORD MAX_REQUEST_DATA_SIZE = 64 * 1024 * 1024;
 
 	//送信データをリサイズする
 	void Resize(DWORD dataSize);

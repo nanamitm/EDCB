@@ -378,7 +378,12 @@ void CTCPServer::ServerThread(CTCPServer* pSys)
 						AddDebugLogFormat(L"Deny TCP cmd:0x%08x", cmd.GetParam());
 						break;
 					}
-					cmd.Resize(head[4] | head[5] << 8 | head[6] << 16 | (DWORD)head[7] << 24);
+					DWORD dataSize = head[4] | head[5] << 8 | head[6] << 16 | (DWORD)head[7] << 24;
+					if( dataSize > CCmdStream::MAX_REQUEST_DATA_SIZE ){
+						AddDebugLogFormat(L"Deny TCP cmd size:%u", dataSize);
+						break;
+					}
+					cmd.Resize(dataSize);
 					if( RecvAll(sock, (char*)cmd.GetData(), cmd.GetDataSize(), 0) != (int)cmd.GetDataSize() ){
 						break;
 					}

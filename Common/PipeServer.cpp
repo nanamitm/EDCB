@@ -286,7 +286,12 @@ void CPipeServer::ServerThread(CPipeServer* pSys)
 					break;
 				}
 				CCmdStream cmd(head[0] | head[1] << 8 | head[2] << 16 | (DWORD)head[3] << 24);
-				cmd.Resize(head[4] | head[5] << 8 | head[6] << 16 | (DWORD)head[7] << 24);
+				DWORD dataSize = head[4] | head[5] << 8 | head[6] << 16 | (DWORD)head[7] << 24;
+				if( dataSize > CCmdStream::MAX_REQUEST_DATA_SIZE ){
+					AddDebugLogFormat(L"Deny pipe cmd size:%u", dataSize);
+					break;
+				}
+				cmd.Resize(dataSize);
 				n = 0;
 				for( DWORD m; n < cmd.GetDataSize() && ReadFile(hPipe, cmd.GetData() + n, cmd.GetDataSize() - n, &m, nullptr); n += m );
 				if( n != cmd.GetDataSize() ){
@@ -337,7 +342,12 @@ void CPipeServer::ServerThread(CPipeServer* pSys)
 						break;
 					}
 					CCmdStream cmd(head[0] | head[1] << 8 | head[2] << 16 | (DWORD)head[3] << 24);
-					cmd.Resize(head[4] | head[5] << 8 | head[6] << 16 | (DWORD)head[7] << 24);
+					DWORD dataSize = head[4] | head[5] << 8 | head[6] << 16 | (DWORD)head[7] << 24;
+					if( dataSize > CCmdStream::MAX_REQUEST_DATA_SIZE ){
+						AddDebugLogFormat(L"Deny pipe cmd size:%u", dataSize);
+						break;
+					}
+					cmd.Resize(dataSize);
 					n = 0;
 					for( int m; n < cmd.GetDataSize() && (m = (int)recv(sock, cmd.GetData() + n, cmd.GetDataSize() - n, 0)) > 0; n += m );
 					if( n != cmd.GetDataSize() ){
