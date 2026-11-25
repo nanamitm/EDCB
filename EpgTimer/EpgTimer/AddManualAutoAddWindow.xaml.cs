@@ -45,8 +45,13 @@ namespace EpgTimer
             }
         }
 
-        private void button_add_Click(object sender, RoutedEventArgs e)
+        private async void button_add_Click(object sender, RoutedEventArgs e)
         {
+            if (!IsEnabled)
+            {
+                return;
+            }
+
             var item = new ManualAutoAddData();
 
             item.dayOfWeekFlag = (byte)((checkBox_week0.IsChecked == true ? 0x01 : 0) |
@@ -85,16 +90,19 @@ namespace EpgTimer
             }
             item.recSetting = recSettingView.GetRecSetting();
 
-            if (defKey != null)
+            bool changing = defKey != null;
+            if (changing)
             {
                 item.dataID = defKey.dataID;
-                CommonManager.CreateSrvCtrl().SendChgManualAdd(new List<ManualAutoAddData>() { item });
             }
-            else
+            //失敗したときは入力内容を残すため、成功したときだけ閉じる
+            var cmd = CommonManager.CreateSrvCtrl();
+            var items = new List<ManualAutoAddData>() { item };
+            if (await CommonManager.SendReserveEditAsync(this, () => changing ? cmd.SendChgManualAdd(items) : cmd.SendAddManualAdd(items),
+                changing ? "プログラム予約の変更でエラーが発生しました。" : "プログラム予約の追加でエラーが発生しました。"))
             {
-                CommonManager.CreateSrvCtrl().SendAddManualAdd(new List<ManualAutoAddData>() { item });
+                Close();
             }
-            Close();
         }
 
         /// <summary>
