@@ -120,6 +120,11 @@ BOOL WINAPI CreateCtrl(
 		//出力プラグインを数珠繋ぎ
 		pluginPath = GetModulePath(g_instance);
 		pluginPath.replace_filename(pluginName);
+		if( UtilComparePath(pluginPath.c_str(), GetModulePath(g_instance).c_str()) == 0 ){
+			//自分自身を数珠繋ぎにするとCreateCtrlが無限に再帰するので繋がない
+			AddDebugLog(L"★Write_OneService: WritePlugin must not be itself");
+			pluginPath.clear();
+		}
 	}
 
 	try{
