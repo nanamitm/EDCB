@@ -10,6 +10,7 @@
 #include "../../Common/CtrlCmdUtil.h"
 #include "../../Common/TSPacketUtil.h"
 #include <list>
+#include <set>
 
 CEpgDBManager::CEpgDBManager()
 {
@@ -45,14 +46,18 @@ void CEpgDBManager::ReloadEpgData(bool foreground)
 namespace
 {
 
-//長期アーカイブ用ファイルを開く
-FILE* OpenOldArchive(LPCWSTR dir, LONGLONG t, int flags)
+fs_path OldArchivePath(LPCWSTR dir, LONGLONG t)
 {
 	SYSTEMTIME st;
 	ConvertSystemTime(t, &st);
 	WCHAR name[32];
 	swprintf_s(name, L"%04d%02d%02d.dat", st.wYear, st.wMonth, st.wDay);
-	return UtilOpenFile(fs_path(dir).append(name), flags);
+	return fs_path(dir).append(name);
+}
+
+FILE* OpenOldArchive(LPCWSTR dir, LONGLONG t, int flags)
+{
+	return UtilOpenFile(OldArchivePath(dir, t), flags);
 }
 
 //存在する長期アーカイブの日付情報を昇順でリストする
@@ -117,6 +122,105 @@ void ReadOldArchiveEventInfo(FILE* fp, const vector<LONGLONG>& index, size_t ind
 			}
 		}
 	}
+}
+
+//クローズまで成功した一時ファイルで保存先を置き換える。
+bool SaveArchiveFile(const fs_path& path, const CCmdStream& header, const vector<CCmdStream>* blocks = nullptr)
+{
+	const fs_path tempPath = fs_path(path).concat(L".tmp");
+	if( FILE* fp = UtilOpenFile(tempPath, UTIL_SECURE_WRITE) ){
+		bool written = fwrite(header.GetData(), 1, header.GetDataSize(), fp) == header.GetDataSize();
+		if( blocks ){
+			for( const CCmdStream& block : *blocks ){
+				written = written && fwrite(block.GetData(), 1, block.GetDataSize(), fp) == block.GetDataSize();
+			}
+		}
+		if( fclose(fp) == 0 && written ){
+#ifdef _WIN32
+			if( MoveFileEx(tempPath.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING) ){
+#else
+			string tempName, name;
+			WtoUTF8(tempPath.native(), tempName);
+			WtoUTF8(path.native(), name);
+			if( rename(tempName.c_str(), name.c_str()) == 0 ){
+#endif
+				return true;
+			}
+		}
+		DeleteFile(tempPath.c_str());
+	}
+	AddDebugLogFormat(L"★Cannot save EPG archive: %ls", path.c_str());
+	return false;
+}
+
+constexpr LONGLONG ARCHIVE_WEEK = 7 * 24 * 3600 * I64_1SEC;
+
+LONGLONG ArchiveWeekStart(LONGLONG startTime, LONGLONG weekEnd)
+{
+	return weekEnd - ((weekEnd - startTime - 1) / ARCHIVE_WEEK + 1) * ARCHIVE_WEEK;
+}
+
+bool SaveOldArchive(const fs_path& path, LONGLONG weekStart, map<LONGLONG, EPGDB_SERVICE_EVENT_INFO>& services, vector<LONGLONG>& index)
+{
+	bool mightExist = false;
+	if( UtilFileExists(path, &mightExist).first || mightExist ){
+		//以前の週別保存が成功していても、短期アーカイブの保存失敗などで同じ週を再度処理し得る。
+		std::unique_ptr<FILE, fclose_deleter> fp(UtilOpenFile(path, UTIL_SECURE_READ));
+		vector<BYTE> buffer;
+		vector<LONGLONG> previousIndex;
+		DWORD headerSize = 0;
+		if( fp ){
+			ReadOldArchiveIndex(fp.get(), buffer, previousIndex, &headerSize);
+		}
+		if( previousIndex.empty() || previousIndex.size() % 4 != 0 ){
+			AddDebugLogFormat(L"★Cannot read EPG archive index: %ls", path.c_str());
+			return false;
+		}
+		for( size_t i = 0; i < previousIndex.size(); i += 4 ){
+			EPGDB_SERVICE_EVENT_INFO previous = {};
+			ReadOldArchiveEventInfo(fp.get(), previousIndex, i, headerSize, buffer, previous);
+			if( previous.eventList.empty() || previousIndex[i + 1] !=
+			    Create64Key(previous.serviceInfo.ONID, previous.serviceInfo.TSID, previous.serviceInfo.SID) ){
+				AddDebugLogFormat(L"★Cannot read EPG archive data: %ls", path.c_str());
+				return false;
+			}
+			auto inserted = services.emplace(previousIndex[i + 1], EPGDB_SERVICE_EVENT_INFO());
+			if( inserted.second ){
+				inserted.first->second = std::move(previous);
+			}else{
+				auto& events = inserted.first->second.eventList;
+				std::set<pair<WORD, LONGLONG>> known;
+				for( const EPGDB_EVENT_INFO& event : events ){
+					known.emplace(event.event_id, ConvertI64Time(event.start_time));
+				}
+				for( EPGDB_EVENT_INFO& event : previous.eventList ){
+					if( known.emplace(event.event_id, ConvertI64Time(event.start_time)).second ){
+						events.push_back(std::move(event));
+					}
+				}
+			}
+		}
+	}
+
+	vector<CCmdStream> blocks;
+	blocks.reserve(services.size());
+	for( const auto& service : services ){
+		LONGLONG first = LLONG_MAX, last = LLONG_MIN;
+		for( const EPGDB_EVENT_INFO& event : service.second.eventList ){
+			LONGLONG offset = ConvertI64Time(event.start_time) - weekStart;
+			first = min(first, offset);
+			last = max(last, offset);
+		}
+		blocks.emplace_back();
+		blocks.back().WriteVALUE2WithVersion(5, service.second);
+		index.push_back(blocks.back().GetDataSize());
+		index.push_back(service.first);
+		index.push_back(first);
+		index.push_back(last);
+	}
+	CCmdStream header;
+	header.WriteVALUE(index);
+	return SaveArchiveFile(path, header, &blocks);
 }
 
 }
@@ -473,80 +577,51 @@ void CEpgDBManager::LoadThread(CEpgDBManager* sys)
 						}), itrArc->second.eventList.end());
 					}
 				}
-				//アーカイブから古いイベントを消す
-				vector<EPGDB_SERVICE_EVENT_INFO> epgOld;
-				vector<LONGLONG> oldIndex;
-				for( auto itr = sys->epgArchive.begin(); itr != sys->epgArchive.end(); ){
-					auto itrOld = epgOld.end();
-					size_t j = 0;
-					for( size_t i = 0; i < itr->second.eventList.size(); i++ ){
-						LONGLONG startTime = ConvertI64Time(itr->second.eventList[i].start_time);
-						if( startTime < oldMax && startTime >= oldMin ){
-							//旧世代に移動する
-							if( itrOld == epgOld.end() ){
-								//サービスを追加
-								epgOld.emplace_back();
-								itrOld = epgOld.end() - 1;
-								itrOld->serviceInfo = itr->second.serviceInfo;
-								oldIndex.push_back(0);
-								oldIndex.push_back(itr->first);
-								oldIndex.push_back(LLONG_MAX);
-								oldIndex.push_back(0);
+				//保存期間内で長期保存の対象になった週を集める。失敗した週も次回に再試行する。
+				map<LONGLONG, map<LONGLONG, EPGDB_SERVICE_EVENT_INFO>> oldWeeks;
+				for( const auto& service : sys->epgArchive ){
+					for( const EPGDB_EVENT_INFO& event : service.second.eventList ){
+						LONGLONG startTime = ConvertI64Time(event.start_time);
+						if( startTime > arcMin && startTime < oldMax ){
+							auto inserted = oldWeeks[ArchiveWeekStart(startTime, oldMax)].emplace(service.first, EPGDB_SERVICE_EVENT_INFO());
+							if( inserted.second ){
+								inserted.first->second.serviceInfo = service.second.serviceInfo;
 							}
-							//開始時間の最小値と最大値
-							*(oldIndex.end() - 2) = min(*(oldIndex.end() - 2), startTime - oldMin);
-							*(oldIndex.end() - 1) = max(*(oldIndex.end() - 1), startTime - oldMin);
-							itrOld->eventList.push_back(std::move(itr->second.eventList[i]));
-						}else if( startTime > max(arcMin, oldMin) && startTime < arcMax ){
-							//残す
-							if( i != j ){
-								itr->second.eventList[j] = std::move(itr->second.eventList[i]);
-							}
-							j++;
+							inserted.first->second.eventList.push_back(event);
 						}
-					}
-					if( j == 0 ){
-						//空のサービスを消す
-						sys->epgArchive.erase(itr++);
-					}else{
-						itr->second.eventList.erase(itr->second.eventList.begin() + j, itr->second.eventList.end());
-						itr++;
 					}
 				}
 
-				//長期アーカイブ用ファイルに書き込む
-				if( epgOld.empty() == false ){
+				std::set<LONGLONG> savedWeeks;
+				if( oldWeeks.empty() == false ){
 					fs_path epgArcPath = fs_path(settingPath).append(EPG_ARCHIVE_FOLDER);
-					if( UtilFileExists(epgArcPath).first == false ){
-						UtilCreateDirectory(epgArcPath);
-					}
-					std::unique_ptr<FILE, fclose_deleter> fp(OpenOldArchive(epgArcPath.c_str(), oldMin, UTIL_O_EXCL_CREAT_WRONLY));
-					if( fp ){
-						vector<CCmdStream> buffList;
-						buffList.reserve(epgOld.size());
-						while( epgOld.empty() == false ){
-							//サービス単位で書き込み、シークできるようにインデックスを作る
-							buffList.emplace_back();
-							buffList.back().WriteVALUE2WithVersion(5, epgOld.back());
-							epgOld.pop_back();
-							oldIndex[epgOld.size() * 4] = buffList.back().GetDataSize();
-						}
-						CCmdStream buff;
-						buff.WriteVALUE(oldIndex);
-						fwrite(buff.GetData(), 1, buff.GetDataSize(), fp.get());
-						while( buffList.empty() == false ){
-							fwrite(buffList.back().GetData(), 1, buffList.back().GetDataSize(), fp.get());
-							buffList.pop_back();
-						}
-						if( oldCache.empty() == false ){
-							//キャッシュに追加
-							size_t i = std::lower_bound(oldCache.front().begin(), oldCache.front().end(), oldMin) - oldCache.front().begin();
-							if( i == oldCache.front().size() || oldCache.front()[i] != oldMin ){
-								oldCache.front().insert(oldCache.front().begin() + i, oldMin);
+					UtilCreateDirectory(epgArcPath);
+					for( auto& week : oldWeeks ){
+						vector<LONGLONG> index;
+						if( SaveOldArchive(OldArchivePath(epgArcPath.c_str(), week.first), week.first, week.second, index) ){
+							savedWeeks.insert(week.first);
+							size_t i = std::lower_bound(oldCache.front().begin(), oldCache.front().end(), week.first) - oldCache.front().begin();
+							if( i == oldCache.front().size() || oldCache.front()[i] != week.first ){
+								oldCache.front().insert(oldCache.front().begin() + i, week.first);
 								oldCache.emplace(oldCache.begin() + 1 + i);
 							}
-							oldCache[1 + i].swap(oldIndex);
+							oldCache[1 + i].swap(index);
 						}
+					}
+				}
+
+				//保存済みか保存期間外になった番組だけを短期アーカイブから取り除く。
+				for( auto itr = sys->epgArchive.begin(); itr != sys->epgArchive.end(); ){
+					auto& events = itr->second.eventList;
+					events.erase(std::remove_if(events.begin(), events.end(), [&](const EPGDB_EVENT_INFO& event) {
+						LONGLONG startTime = ConvertI64Time(event.start_time);
+						return startTime <= arcMin || startTime >= arcMax ||
+						       (startTime < oldMax && savedWeeks.count(ArchiveWeekStart(startTime, oldMax)) != 0);
+					}), events.end());
+					if( events.empty() ){
+						itr = sys->epgArchive.erase(itr);
+					}else{
+						++itr;
 					}
 				}
 				sys->epgOldIndexCache.swap(oldCache);
@@ -570,10 +645,7 @@ void CEpgDBManager::LoadThread(CEpgDBManager* sys)
 		for( auto itr = sys->epgArchive.cbegin(); itr != sys->epgArchive.end(); valp.push_back(&(itr++)->second) );
 		CCmdStream buff;
 		buff.WriteVALUE2WithVersion(5, valp);
-		std::unique_ptr<FILE, fclose_deleter> fp(UtilOpenFile(fs_path(settingPath).append(EPG_ARCHIVE_DATA_NAME), UTIL_SECURE_WRITE));
-		if( fp ){
-			fwrite(buff.GetData(), 1, buff.GetDataSize(), fp.get());
-		}
+		SaveArchiveFile(fs_path(settingPath).append(EPG_ARCHIVE_DATA_NAME), buff);
 	}
 
 	AddDebugLogFormat(L"End Load EpgData %dmsec", GetU32Tick() - time);
