@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Documents;
 using System.Windows.Media;
@@ -436,6 +437,49 @@ namespace EpgTimer
                 info.ts_name = item.NetworkName;
             }
             return info;
+        }
+
+        public static async Task<bool> SendReserveEditAsync(Window editor, Func<ErrCode> send, string defaultError)
+        {
+            bool closed = false;
+            EventHandler onClosed = (sender, e) => closed = true;
+            editor.Closed += onClosed;
+            editor.IsEnabled = false;
+            string message = null;
+            try
+            {
+                ErrCode err = await Task.Run(send);
+                if (err != ErrCode.CMD_SUCCESS)
+                {
+                    message = GetErrCodeText(err) ?? defaultError;
+                    if (err == ErrCode.CMD_ERR_TIMEOUT || err == ErrCode.CMD_ERR_DISCONNECT)
+                    {
+                        message += "\r\n再試行する前に予約一覧で反映状況を確認してください。";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                message = ex.Message;
+            }
+            finally
+            {
+                editor.Closed -= onClosed;
+                if (!closed)
+                {
+                    editor.IsEnabled = true;
+                }
+            }
+            if (closed)
+            {
+                return false;
+            }
+            if (message != null)
+            {
+                MessageBox.Show(message);
+                return false;
+            }
+            return true;
         }
 
         public static string GetErrCodeText(ErrCode err)
