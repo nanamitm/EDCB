@@ -694,8 +694,28 @@ namespace EpgTimer
         /// <summary>
         /// 設定ファイルロード関数
         /// </summary>
+        /// <summary>読み込めなかった設定ファイルを、上書きする前に退避する必要がある</summary>
+        private static bool preserveBrokenSettingFile = false;
+
+        /// <summary>読み込めなかった設定ファイルを.brokenとして残す。成功すればtrue</summary>
+        private static bool PreserveBrokenSettingFile(string path)
+        {
+            try
+            {
+                File.Copy(path, path + ".broken", true);
+                preserveBrokenSettingFile = false;
+                return true;
+            }
+            catch
+            {
+                preserveBrokenSettingFile = true;
+                return false;
+            }
+        }
+
         public static void LoadFromXmlFile(bool nwMode)
         {
+            bool loaded = false;
             for (int retry = 0; ;)
             {
                 try
@@ -710,9 +730,21 @@ namespace EpgTimer
                         if (x != null)
                         {
                             Instance = new Settings(x);
+                            loaded = true;
                         }
                     }
                     break;
+                }
+                catch (FileNotFoundException)
+                {
+                    //File.Replace()の内部でNotFoundになる瞬間がある
+                    if (++retry > 4)
+                    {
+                        //本当にないので初期値でよい
+                        loaded = true;
+                        break;
+                    }
+                    Thread.Sleep(200 * retry);
                 }
                 catch (IOException)
                 {
@@ -728,6 +760,11 @@ namespace EpgTimer
                     //内容が異常など
                     break;
                 }
+            }
+            if (!loaded && File.Exists(GetSettingPath()))
+            {
+                //初期値で起動して保存すると元の設定が失われるので、読み込めなかったファイルを残す
+                PreserveBrokenSettingFile(GetSettingPath());
             }
 
             //色設定関係
@@ -826,6 +863,12 @@ namespace EpgTimer
             try
             {
                 string path = GetSettingPath();
+
+                if (preserveBrokenSettingFile && File.Exists(path) && !PreserveBrokenSettingFile(path))
+                {
+                    //読み込めなかった設定ファイルを退避できないまま上書きしない
+                    throw new IOException("読み込めなかった設定ファイルを退避できないため、設定を保存しませんでした。");
+                }
 
                 try
                 {
