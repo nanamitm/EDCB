@@ -189,6 +189,7 @@ protected:
 
 	enum { PITTARI_NONE, PITTARI_START, PITTARI_END_CHK, PITTARI_END } pittariState;
 	bool pittariSubRec;
+	bool pittariSaveSucceeded;
 	SET_CTRL_REC_PARAM pittariRecParam;
 	vector<wstring> pittariSaveFolderSub;
 	int pittariMaxBuffCount;

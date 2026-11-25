@@ -257,6 +257,9 @@ void CEpgDataCap_BonMin::OnDestroy()
 		PrintStatusLog(L"Canceled\n");
 	}
 	if( this->recCtrlID != 0 ){
+		if( this->bonCtrl.EndSave(this->recCtrlID) == false ){
+			PrintStatusLog(L"Failed to finish rec\n");
+		}
 		this->bonCtrl.DeleteServiceCtrl(this->recCtrlID);
 		this->recCtrlID = 0;
 	}
@@ -303,6 +306,8 @@ void CEpgDataCap_BonMin::OnStartRec()
 	recParam.saveFolder.back().recFileName = fileName;
 	recParam.pittariFlag = 0;
 	if( this->bonCtrl.StartSave(recParam, this->recFolderList, this->setting.writeBuffMaxCount) == false ){
+		this->bonCtrl.DeleteServiceCtrl(this->recCtrlID);
+		this->recCtrlID = 0;
 		PrintStatusLog(L"Failed to start rec\n");
 		this->msgManager.Send(CMessageManager::ID_CLOSE);
 	}
@@ -738,12 +743,13 @@ void CEpgDataCap_BonMin::CtrlCmdCallbackInvoked()
 				}else{
 					this->bonCtrl.GetErrCount(val.ctrlID, &resVal.drop, &resVal.scramble);
 				}
-				bool subRec;
-				if( this->bonCtrl.EndSave(val.ctrlID, &subRec) ){
+				bool subRec = false;
+				bool saved = this->bonCtrl.EndSave(val.ctrlID, &subRec);
+				if( saved || resVal.recFilePath.empty() == false ){
 					resVal.subRecFlag = subRec;
 					res.WriteVALUE(resVal);
-					res.SetParam(CMD_SUCCESS);
 				}
+				res.SetParam(saved ? CMD_SUCCESS : CMD_ERR);
 			}
 		}
 		break;

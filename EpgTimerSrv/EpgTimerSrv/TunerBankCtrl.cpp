@@ -153,10 +153,13 @@ bool CTunerBankCtrl::DelReserve(DWORD reserveID, vector<CHECK_RESULT>* retList)
 							SET_CTRL_REC_STOP_PARAM param;
 							param.ctrlID = itr->second.ctrlID[i];
 							param.saveErrLog = this->saveErrLog;
-							SET_CTRL_REC_STOP_RES_PARAM resVal;
+							SET_CTRL_REC_STOP_RES_PARAM resVal = {};
 							if( ctrlCmd.SendViewStopRec(param, &resVal) != CMD_SUCCESS ){
 								if( isMainCtrl ){
 									ret.type = CHECK_ERR_RECEND;
+									ret.recFilePath = resVal.recFilePath.empty() ? itr->second.recFilePath[i] : resVal.recFilePath;
+									ret.drops = resVal.drop;
+									ret.scrambles = resVal.scramble;
 								}
 							}else if( isMainCtrl ){
 								ret.type = resVal.subRecFlag ? CHECK_END_END_SUBREC :
@@ -435,10 +438,13 @@ vector<CTunerBankCtrl::CHECK_RESULT> CTunerBankCtrl::Check(vector<DWORD>* starte
 								SET_CTRL_REC_STOP_PARAM param;
 								param.ctrlID = r.ctrlID[i];
 								param.saveErrLog = this->saveErrLog;
-								SET_CTRL_REC_STOP_RES_PARAM resVal;
+								SET_CTRL_REC_STOP_RES_PARAM resVal = {};
 								if( ctrlCmd.SendViewStopRec(param, &resVal) != CMD_SUCCESS ){
 									if( isMainCtrl ){
 										ret.type = CHECK_ERR_RECEND;
+										ret.recFilePath = resVal.recFilePath.empty() ? r.recFilePath[i] : resVal.recFilePath;
+										ret.drops = resVal.drop;
+										ret.scrambles = resVal.scramble;
 									}
 								}else if( isMainCtrl ){
 									ret.type = resVal.subRecFlag ? CHECK_END_END_SUBREC :
@@ -601,10 +607,13 @@ vector<CTunerBankCtrl::CHECK_RESULT> CTunerBankCtrl::Check(vector<DWORD>* starte
 											SET_CTRL_REC_STOP_PARAM param;
 											param.ctrlID = itr->second.ctrlID[i];
 											param.saveErrLog = this->saveErrLog;
-											SET_CTRL_REC_STOP_RES_PARAM resVal;
+											SET_CTRL_REC_STOP_RES_PARAM resVal = {};
 											if( ctrlCmd.SendViewStopRec(param, &resVal) != CMD_SUCCESS ){
 												if( isMainCtrl ){
 													retOther.type = CHECK_ERR_RECEND;
+													retOther.recFilePath = resVal.recFilePath.empty() ? itr->second.recFilePath[i] : resVal.recFilePath;
+													retOther.drops = resVal.drop;
+													retOther.scrambles = resVal.scramble;
 												}
 											}else if( isMainCtrl ){
 												retOther.recFilePath = resVal.recFilePath;
