@@ -14,6 +14,7 @@
 #include <tlhelp32.h>
 #include <lm.h>
 #include <commctrl.h>
+#include "../../Common/DarkMessageBoxUtil.h"
 #else
 #include <errno.h>
 #include <fcntl.h>
@@ -930,11 +931,11 @@ LRESULT CALLBACK CEpgTimerSrvMain::MainWndProc(HWND hwnd, UINT uMsg, WPARAM wPar
 				lock_recursive_mutex lock(ctx->sys->settingLock);
 				ctx->sys->msgManager.Post(ID_APP_REQUEST_SHUTDOWN, LOWORD(wParam) == IDC_BUTTON_S3 ? SD_MODE_STANDBY : SD_MODE_SUSPEND, ctx->sys->setting.reboot);
 			}else{
-				MessageBox(hwnd, L"移行できる状態ではありません。\r\n（もうすぐ予約が始まる。または抑制条件のexeが起動している。など）", nullptr, MB_ICONERROR);
+				DarkAwareMessageBox(hwnd, L"移行できる状態ではありません。\r\n（もうすぐ予約が始まる。または抑制条件のexeが起動している。など）", nullptr, MB_ICONERROR);
 			}
 			break;
 		case IDC_BUTTON_END:
-			if( MessageBox(hwnd, SERVICE_NAME L" を終了します。", L"確認", MB_OKCANCEL | MB_ICONINFORMATION) == IDOK ){
+			if( DarkAwareMessageBox(hwnd, SERVICE_NAME L" を終了します。", L"確認", MB_OKCANCEL | MB_ICONINFORMATION) == IDOK ){
 				ctx->sys->msgManager.Send(CMessageManager::ID_CLOSE);
 			}
 			break;

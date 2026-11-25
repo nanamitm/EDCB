@@ -54,6 +54,13 @@ ifeq ($(OS),Windows_NT)
   CXXFLAGS := -std=c++17 -pedantic-errors -Os $(CXXFLAGS)
   LDFLAGS2 = -municode -mwindows -Wl,-s,--dynamicbase,--nxcompat -static-libgcc -static-libstdc++ $(LDFLAGS)
   LDLIBS := -lole32 -lcomctl32 -ldbghelp -lcomdlg32 $(LDLIBS)
+
+  # win32-darkmodelib (dark mode for the dialogs, requires C++20)
+  ifneq ($(wildcard ../../external/darkmodelib/include/Darkmodelib.h),)
+    SOURCES := $(SOURCES) $(addprefix Dmlib__,$(addsuffix .cpp,Darkmodelib DmlibColor DmlibDpi DmlibHook DmlibPaintHelper DmlibSubclass DmlibSubclassControl DmlibSubclassWindow DmlibWinApi))
+    CPPFLAGS += -DEDCB_USE_DARKMODELIB -I../../external/darkmodelib/include
+    LDLIBS += -luxtheme -ldwmapi -lgdi32 -lshlwapi
+  endif
 else
   SOURCES := $(SOURCES) EpgDataCap_BonMin.cpp
   TARGETEXT =
@@ -73,6 +80,8 @@ BonCtrl__%.cpp.obj: ../../BonCtrl/%.cpp stdafx.h.gch $(DEP_ALL_H)
 	$(COMPILE.cpp) $(OUTPUT_OPTION) $<
 Common__%.cpp.obj: ../../Common/%.cpp stdafx.h.gch $(DEP_ALL_H)
 	$(COMPILE.cpp) $(OUTPUT_OPTION) $<
+Dmlib__%.cpp.obj: ../../external/darkmodelib/src/%.cpp
+	$(CXX) $(filter-out -std=c++17 -pedantic-errors,$(CXXFLAGS)) -std=c++20 -D_DARKMODELIB_NO_INI_CONFIG $(CPPFLAGS) -c $(OUTPUT_OPTION) $<
 %.cpp.obj: %.cpp stdafx.h.gch $(DEP_ALL_H) $(CUR_ALL_H)
 	$(COMPILE.cpp) $(OUTPUT_OPTION) $<
 stdafx.h.gch: stdafx.h ../../Common/Common.h targetver.h

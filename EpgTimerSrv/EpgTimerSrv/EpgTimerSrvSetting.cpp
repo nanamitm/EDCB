@@ -9,6 +9,9 @@
 #include <windowsx.h>
 #include <shlobj.h>
 #include <commdlg.h>
+#ifdef EDCB_USE_DARKMODELIB
+#include <Darkmodelib.h>
+#endif
 #endif
 
 CEpgTimerSrvSetting::SETTING CEpgTimerSrvSetting::LoadSetting(LPCWSTR iniPath)
@@ -625,6 +628,22 @@ INT_PTR CEpgTimerSrvSetting::OnInitDialog()
 
 	TabCtrl_SetCurSel(hTab, 0);
 	ShowWindow(this->hwndBasic, SW_SHOW);
+
+#ifdef EDCB_USE_DARKMODELIB
+	//Windowsがダークモードのときだけwin32-darkmodelibでダークモードにする(ライトモードでは従来どおり)
+	if( dmlib::isDarkModeReg() ){
+		dmlib::initDarkMode();
+		if( dmlib::isEnabled() ){
+			for( size_t i = 0; i < array_size(this->hwndChild); i++ ){
+				dmlib::setWindowEraseBgSubclass(this->hwndChild[i]);
+				dmlib::setWindowCtlColorSubclass(this->hwndChild[i]);
+				dmlib::setWindowNotifyCustomDrawSubclass(this->hwndChild[i]);
+				dmlib::setChildCtrlsSubclassAndTheme(this->hwndChild[i]);
+			}
+			dmlib::setDarkWndNotifySafe(this->hwndTop);
+		}
+	}
+#endif
 
 	return TRUE;
 }

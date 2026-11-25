@@ -41,6 +41,8 @@
 !*.xml
 !.github/workflows/*.yml
 !.gitignore
+!.gitmodules
+!/external/darkmodelib
 !/Document/Patch/*.diff
 !/Document/Patch/*.patch
 !/EpgTimerSrv/EpgTimerSrv/*.a
