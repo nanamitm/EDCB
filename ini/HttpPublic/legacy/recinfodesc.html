@@ -40,13 +40,24 @@ if post then
       ct:Append('  <div id="result">移動先のディレクトリが存在しません</div>\n')
     elseif not EdcbFindFilePlain(w.recFilePath) then
       --情報だけ変更
-      edcb.ChgPathRecFileInfo(id,ren)
-      w.recFilePath=ren
-      ct:Append('  <div id="result">リネームしました</div>\n')
+      if edcb.ChgPathRecFileInfo(id,ren)==false then
+        ct:Append('  <div id="result">録画済み情報を保存できませんでした</div>\n')
+      else
+        w.recFilePath=ren
+        ct:Append('  <div id="result">リネームしました</div>\n')
+      end
     elseif not IsEqualPath(ren,w.recFilePath) and EdcbFindFilePlain(ren) then
       ct:Append('  <div id="result">移動先にファイルが存在します</div>\n')
     elseif not edcb.os.rename(w.recFilePath,ren) then
       ct:Append('  <div id="result">ファイルを移動できません</div>\n')
+    elseif edcb.ChgPathRecFileInfo(id,ren)==false then
+      --録画済み情報と食い違わないようファイルを元に戻す
+      if IsEqualPath(ren,w.recFilePath) or edcb.os.rename(ren,w.recFilePath) then
+        ct:Append('  <div id="result">録画済み情報を保存できなかったため、ファイルを元に戻しました</div>\n')
+      else
+        edcb.htmlEscape=15
+        ct:Append('  <div id="result">録画済み情報を保存できませんでした。ファイルの移動先: '..EdcbHtmlEscape(ren)..'</div>\n')
+      end
     else
       --拡張子が付加されたファイルも移動する
       oriName=w.recFilePath:match('[^'..DIR_SEPS..']*$')
@@ -63,7 +74,6 @@ if post then
           edcb.os.rename(PathAppend(recInfoFolder,oriName..v),PathAppend(recInfoFolder,renName..v))
         end
       end
-      edcb.ChgPathRecFileInfo(id,ren)
       w.recFilePath=ren
       ct:Append('  <div id="result">リネームしました</div>\n')
     end

@@ -1165,7 +1165,7 @@ edcb.os.execute('echo %hoge% %fuga% & pause', true, {hoge='ほげ♪',fuga='ふ�
 - 予約を変更する  
   失敗時はfalse。
 
-`DelReserveData( 予約ID:I )`
+`DelReserveData( 予約ID:I ) ＝ 成功したか:B`
 - 予約を削除する
 
 `GetReserveData() → <予約情報>のリスト`  
@@ -1196,8 +1196,8 @@ edcb.os.execute('echo %hoge% %fuga% & pause', true, {hoge='ほげ♪',fuga='ふ�
   a=edcb.GetRecFileInfoBasic and edcb.GetRecFileInfoBasic() or edcb.GetRecFileInfo()
   ```
 
-`ChgPathRecFileInfo( 情報ID:I, 録画ファイルパス:S )`
-- 録画済み情報の録画ファイルパスを変更する
+`ChgPathRecFileInfo( 情報ID:I, 録画ファイルパス:S ) ＝ 成功したか:B`
+- 録画済み情報の録画ファイルパスを変更し、変更を保存できたか返す
 
 `ChgProtectRecFileInfo( 情報ID:I, プロテクト:B )`
 - 録画済み情報のプロテクトを変更する

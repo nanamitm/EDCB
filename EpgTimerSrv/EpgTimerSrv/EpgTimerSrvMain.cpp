@@ -1725,8 +1725,7 @@ void CEpgTimerSrvMain::CtrlCmdCallback(CEpgTimerSrvMain* sys, const CCmdStream& 
 	case CMD2_EPG_SRV_DEL_RESERVE:
 		{
 			vector<DWORD> list;
-			if( cmd.ReadVALUE(&list) ){
-				sys->reserveManager.DelReserveData(list);
+			if( cmd.ReadVALUE(&list) && sys->reserveManager.DelReserveData(list) ){
 				res.SetParam(CMD_SUCCESS);
 			}
 		}
@@ -1758,8 +1757,7 @@ void CEpgTimerSrvMain::CtrlCmdCallback(CEpgTimerSrvMain* sys, const CCmdStream& 
 		{
 			AddDebugLog(L"CMD2_EPG_SRV_CHG_PATH_RECINFO");
 			vector<REC_FILE_INFO> list;
-			if( cmd.ReadVALUE(&list) ){
-				sys->reserveManager.ChgPathRecFileInfo(list);
+			if( cmd.ReadVALUE(&list) && sys->reserveManager.ChgPathRecFileInfo(list) ){
 				res.SetParam(CMD_SUCCESS);
 			}
 		}
@@ -2719,8 +2717,9 @@ void CEpgTimerSrvMain::CtrlCmdCallback(CEpgTimerSrvMain* sys, const CCmdStream& 
 			RESERVE_DATA item;
 			if( DeprecatedReadVALUE(&item, cmd.GetData(), cmd.GetDataSize()) ){
 				vector<DWORD> list(1, item.reserveID);
-				sys->reserveManager.DelReserveData(list);
-				res.SetParam(OLD_CMD_SUCCESS);
+				if( sys->reserveManager.DelReserveData(list) ){
+					res.SetParam(OLD_CMD_SUCCESS);
+				}
 			}
 		}
 		break;
@@ -3998,9 +3997,11 @@ int CEpgTimerSrvMain::LuaDelReserveData(lua_State* L)
 	CLuaWorkspace ws(L);
 	if( lua_gettop(L) == 1 ){
 		vector<DWORD> list(1, (DWORD)lua_tointeger(L, -1));
-		ws.sys->reserveManager.DelReserveData(list);
+		lua_pushboolean(L, ws.sys->reserveManager.DelReserveData(list));
+		return 1;
 	}
-	return 0;
+	lua_pushboolean(L, false);
+	return 1;
 }
 
 int CEpgTimerSrvMain::LuaGetReserveData(lua_State* L)
@@ -4113,10 +4114,12 @@ int CEpgTimerSrvMain::LuaChgPathRecFileInfo(lua_State* L)
 			vector<REC_FILE_INFO> list(1);
 			list.front().id = (DWORD)lua_tointeger(L, 1);
 			UTF8toW(path, list.front().recFilePath);
-			ws.sys->reserveManager.ChgPathRecFileInfo(list);
+			lua_pushboolean(L, ws.sys->reserveManager.ChgPathRecFileInfo(list));
+			return 1;
 		}
 	}
-	return 0;
+	lua_pushboolean(L, false);
+	return 1;
 }
 
 int CEpgTimerSrvMain::LuaChgProtectRecFileInfo(lua_State* L)

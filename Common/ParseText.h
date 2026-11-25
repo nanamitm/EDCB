@@ -188,7 +188,9 @@ bool CParseText<M>::SaveText(string* saveToStr) const
 			ret = ret && fwrite(saveBuf.data(), 1, len, fp.get()) == len;
 		}
 	}
-	fp.reset();
+	if( fp && fclose(fp.release()) != 0 ){
+		ret = false;
+	}
 
 	if( ret ){
 		if( saveToStr ){
