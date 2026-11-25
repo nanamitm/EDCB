@@ -380,8 +380,9 @@ OSのタイムゾーンの影響を受けなくなりました。予約管理や
       - 引数つきで起動したとき(iEPG予約追加など)はすぐに終了する【追加】
         - EpgTimer.exeにiEPGファイルを与えて起動したときの動作を変更します。
       - テーマを適用する(要再起動)【追加】  
-        EpgTimer.exe.xmlの`<NoStyle>`に相当します。オフでOSデフォルト、オンで
-        Vistaテーマになります。オンのときEpgTimerのあるフォルダに
+        EpgTimer.exe.xmlの`<NoStyle>`に相当します。オフでOSデフォルト
+        （.NET 10版ではWindowsの設定に従うFluentテーマ）、オンでVistaテーマに
+        なります。オンのときEpgTimerのあるフォルダに
         EpgTimer.exe.rd.xamlがあれば、そこに定義されたリソースを適用します【追加
         】。[iniフォルダ](../ini)に簡単なサンプルを用意したので参考にしてくださ
         い。

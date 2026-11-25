@@ -15,7 +15,7 @@ namespace EpgTimer
     /// System.Windows.MessageBoxの置き換え
     /// EpgTimer名前空間内ではSystem.Windows.MessageBoxよりこちらが優先して解決される
     /// Win32のメッセージボックスはダークモードにならないので、Windowsがダークモードのときだけ
-    /// WPF(Fluentテーマ)のウィンドウで表示する。それ以外は従来どおりSystem.Windows.MessageBoxを使う
+    /// Fluentテーマを使用している場合はWPFのウィンドウで表示する。それ以外はSystem.Windows.MessageBoxを使う
     /// </summary>
     static class MessageBox
     {
@@ -48,13 +48,18 @@ namespace EpgTimer
                 {
                     return app.Dispatcher.Invoke(() => Show(messageBoxText, caption, button, icon, defaultResult));
                 }
-                try
+#pragma warning disable WPF0001
+                if (app.ThemeMode != ThemeMode.None)
+#pragma warning restore WPF0001
                 {
-                    return ShowDark(app, messageBoxText, caption, button, icon, defaultResult);
-                }
-                catch (InvalidOperationException)
-                {
-                    //ディスパッチャ停止中などでウィンドウを表示できないときは従来のメッセージボックスにする
+                    try
+                    {
+                        return ShowDark(app, messageBoxText, caption, button, icon, defaultResult);
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        //ディスパッチャ停止中などでウィンドウを表示できないときは従来のメッセージボックスにする
+                    }
                 }
             }
             return System.Windows.MessageBox.Show(messageBoxText, caption, button, icon, defaultResult);
