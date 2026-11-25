@@ -433,7 +433,16 @@ public:
 		const SET_CTRL_REC_STOP_PARAM& val,
 		SET_CTRL_REC_STOP_RES_PARAM* resVal
 		){
-		return SendAndReceiveCmdData(CMD2_VIEW_APP_REC_STOP_CTRL, val, resVal);
+		CCmdStream res;
+		DWORD ret = SendCmdData(CMD2_VIEW_APP_REC_STOP_CTRL, val, &res);
+		if( ret == CMD_SUCCESS || (ret == CMD_ERR && res.GetDataSize() != 0) ){
+			SET_CTRL_REC_STOP_RES_PARAM info = {};
+			if( !res.ReadVALUE(&info) ){
+				return CMD_ERR;
+			}
+			*resVal = std::move(info);
+		}
+		return ret;
 	}
 
 	//録画中のファイルパスを取得

@@ -370,6 +370,7 @@ protected:
 	std::unique_ptr<FILE, fclose_deleter> epgFile;
 	enum { EPG_FILE_ST_NONE, EPG_FILE_ST_PAT, EPG_FILE_ST_TOT, EPG_FILE_ST_ALL } epgFileState;
 	LONGLONG epgFileTotPos;
+	bool epgFileWriteFailed;
 	wstring epgFilePath;
 	wstring epgTempFilePath;
 	vector<pair<LONGLONG, DWORD>> logoServiceListSizeMap;

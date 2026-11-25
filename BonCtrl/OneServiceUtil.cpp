@@ -237,6 +237,7 @@ bool COneServiceUtil::StartSave(
 		}else{
 			AddDebugLog(L"*:StartSave pittariFlag");
 			this->pittariRecParam = recParam;
+			this->pittariSaveSucceeded = false;
 			this->pittariSaveFolderSub = saveFolderSub;
 			this->pittariMaxBuffCount = maxBuffCount;
 
@@ -269,7 +270,7 @@ void COneServiceUtil::StopPittariRec()
 	this->pittariState = PITTARI_END;
 	//ここでファイルパスを取得しておく
 	this->pittariRecParam.fileName = this->writeFile.GetSaveFilePath();
-	this->writeFile.EndSave(&this->pittariSubRec);
+	this->pittariSaveSucceeded = this->writeFile.EndSave(&this->pittariSubRec);
 }
 
 //ファイル保存を終了する
@@ -287,7 +288,7 @@ bool COneServiceUtil::EndSave(bool* subRecFlag)
 		if( subRecFlag ){
 			*subRecFlag = this->pittariState == PITTARI_END && this->pittariSubRec;
 		}
-		ret = true;
+		ret = this->pittariState != PITTARI_END || this->pittariSaveSucceeded;
 	}
 	this->pittariState = PITTARI_NONE;
 	AddDebugLog(L"*:EndSave");

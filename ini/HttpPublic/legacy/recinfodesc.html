@@ -48,11 +48,12 @@ if post then
       end
     elseif not IsEqualPath(ren,w.recFilePath) and EdcbFindFilePlain(ren) then
       ct:Append('  <div id="result">移動先にファイルが存在します</div>\n')
-    elseif not edcb.os.rename(w.recFilePath,ren) then
+    elseif ren~=w.recFilePath and not (edcb.RenameFileNoReplace or edcb.os.rename)(w.recFilePath,ren) then
       ct:Append('  <div id="result">ファイルを移動できません</div>\n')
     elseif edcb.ChgPathRecFileInfo(id,ren)==false then
-      --録画済み情報と食い違わないようファイルを元に戻す
-      if IsEqualPath(ren,w.recFilePath) or edcb.os.rename(ren,w.recFilePath) then
+      --元のパスに別のファイルが作られていれば上書きしない
+      local renameNoReplace=edcb.RenameFileNoReplace or (WIN32 and edcb.os.rename)
+      if ren==w.recFilePath or renameNoReplace and renameNoReplace(ren,w.recFilePath) then
         ct:Append('  <div id="result">録画済み情報を保存できなかったため、ファイルを元に戻しました</div>\n')
       else
         edcb.htmlEscape=15

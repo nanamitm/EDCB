@@ -644,12 +644,14 @@ void CEpgDataCap_BonDlg::OnTimer(UINT_PTR nIDEvent)
 			break;
 		case TIMER_REC_END:
 			{
+				bool saved = true;
 				if( this->recCtrlID != 0 ){
+					saved = this->bonCtrl.EndSave(this->recCtrlID);
 					this->bonCtrl.DeleteServiceCtrl(this->recCtrlID);
 					this->recCtrlID = 0;
 				}
 				KillTimer(TIMER_REC_END);
-				SetDlgItemText(m_hWnd, IDC_EDIT_LOG, L"録画停止しました\r\n");
+				SetDlgItemText(m_hWnd, IDC_EDIT_LOG, saved ? L"録画停止しました\r\n" : L"録画の書き出しに失敗しました\r\n");
 				BtnUpdate(GUI_NORMAL);
 				Button_SetCheck(GetDlgItem(IDC_CHECK_REC_SET), BST_UNCHECKED);
 				ChgIconStatus();
@@ -1299,6 +1301,9 @@ void CEpgDataCap_BonDlg::OnBnClickedButtonCancel()
 	this->bonCtrl.StopEpgCap();
 	this->epgCapWorking = FALSE;
 	if( this->recCtrlID != 0 ){
+		if( this->bonCtrl.EndSave(this->recCtrlID) == false ){
+			SetDlgItemText(m_hWnd, IDC_EDIT_LOG, L"録画の書き出しに失敗しました\r\n");
+		}
 		this->bonCtrl.DeleteServiceCtrl(this->recCtrlID);
 		this->recCtrlID = 0;
 	}
@@ -1830,17 +1835,18 @@ void CEpgDataCap_BonDlg::CtrlCmdCallbackInvoked()
 				}else{
 					this->bonCtrl.GetErrCount(val.ctrlID, &resVal.drop, &resVal.scramble);
 				}
-				bool subRec;
-				if( this->bonCtrl.EndSave(val.ctrlID, &subRec) ){
+				bool subRec = false;
+				bool saved = this->bonCtrl.EndSave(val.ctrlID, &subRec);
+				if( saved || resVal.recFilePath.empty() == false ){
 					resVal.subRecFlag = subRec;
 					res.WriteVALUE(resVal);
-					res.SetParam(CMD_SUCCESS);
-					if( this->cmdCtrlList.size() == 1 ){
-						BtnUpdate(GUI_NORMAL);
-						SetDlgItemText(m_hWnd, IDC_EDIT_LOG, L"予約録画終了しました\r\n");
-					}
-					ChgIconStatus();
 				}
+				if( this->cmdCtrlList.size() == 1 && this->cmdCtrlList.front() == val.ctrlID ){
+					BtnUpdate(GUI_NORMAL);
+					SetDlgItemText(m_hWnd, IDC_EDIT_LOG, saved ? L"予約録画終了しました\r\n" : L"予約録画の書き出しに失敗しました\r\n");
+				}
+				ChgIconStatus();
+				res.SetParam(saved ? CMD_SUCCESS : CMD_ERR);
 			}
 		}
 		break;

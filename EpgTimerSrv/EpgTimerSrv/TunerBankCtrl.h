@@ -40,7 +40,7 @@ public:
 	struct CHECK_RESULT {
 		DWORD type;
 		DWORD reserveID;
-		//以下はtype<=CHECK_END_NOT_START_HEADのとき有効
+		//以下はtype<=CHECK_ERR_RECENDのとき有効
 		wstring recFilePath;
 		bool continueRec;
 		//continueRec(連続録画開始による終了)のときdropsとscramblesは常に0

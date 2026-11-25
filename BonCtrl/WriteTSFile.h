@@ -79,18 +79,23 @@ protected:
 
 	struct SAVE_INFO {
 		CWritePlugInUtil writeUtil;
-		bool freeChk;
+		bool primary;
+		vector<wstring> triedFolders;
 		wstring writePlugIn;
 		wstring recFolder;
 		wstring recFileName;
 	};
 	vector<std::unique_ptr<SAVE_INFO>> fileList;
 
+	bool SwitchOutput(SAVE_INFO& output);
+	void WriteOutputBlock(vector<BYTE>& block);
+
 	bool overWriteFlag;
 	ULONGLONG createSize;
 	vector<wstring> saveFolderSub;
 
 	bool subRecFlag;
+	std::atomic_bool writeFailed;
 	LONGLONG writeTotalSize;
 	wstring mainSaveFilePath;
 

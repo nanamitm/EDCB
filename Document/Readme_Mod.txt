@@ -1196,6 +1196,11 @@ edcb.os.execute('echo %hoge% %fuga% & pause', true, {hoge='ほげ♪',fuga='ふ�
   a=edcb.GetRecFileInfoBasic and edcb.GetRecFileInfoBasic() or edcb.GetRecFileInfo()
   ```
 
+`RenameFileNoReplace( 元パス:S, 移動先パス:S ) ＝ 成功したか:B`
+- ファイルを移動する。移動先が存在する場合は失敗する
+  Windowsではos.renameと同じく別ドライブへも移動できる。UNIXでは同じファイルシステム内に限る。
+  RENAME_NOREPLACEに未対応のファイルシステムでは、移動先が無いことを確認してから移動する。
+
 `ChgPathRecFileInfo( 情報ID:I, 録画ファイルパス:S ) ＝ 成功したか:B`
 - 録画済み情報の録画ファイルパスを変更し、変更を保存できたか返す
 

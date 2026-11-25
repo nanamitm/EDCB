@@ -122,6 +122,7 @@ private:
 	static int LuaGetRecFileInfoBasic(lua_State* L);
 	static int LuaGetRecFileInfoProc(lua_State* L, bool getExtraInfo);
 	static int LuaChgPathRecFileInfo(lua_State* L);
+	static int LuaRenameFileNoReplace(lua_State* L);
 	static int LuaChgProtectRecFileInfo(lua_State* L);
 	static int LuaDelRecFileInfo(lua_State* L);
 	static int LuaGetTunerReserveAll(lua_State* L);

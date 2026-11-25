@@ -1421,7 +1421,7 @@ void CReserveManager::ProcessRecEnd(const vector<CTunerBankCtrl::CHECK_RESULT>& 
 
 			REC_FILE_INFO_BASIC item;
 			item = itrRes->second;
-			if( itrRet->type <= CTunerBankCtrl::CHECK_END_NOT_START_HEAD ){
+			if( itrRet->type <= CTunerBankCtrl::CHECK_ERR_RECEND ){
 				item.recFilePath = itrRet->recFilePath;
 				item.drops = itrRet->drops;
 				item.scrambles = itrRet->scrambles;
