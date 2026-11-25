@@ -89,7 +89,8 @@ public:
 	//待機状態に入っている予約を変更する
 	//変更できないフィールドは適宜修正される
 	//開始時間の後方移動は注意が必要。後方移動の結果待機状態を明らかに抜けてしまう場合はstartTimeとstartMarginが修正される
-	bool ChgCtrlReserve(TUNER_RESERVE* reserve);
+	bool PrepareCtrlReserve(TUNER_RESERVE* reserve) const;
+	void ApplyCtrlReserve(const TUNER_RESERVE& reserve);
 	//予約を削除する
 	//retList: 録画中であれば終了結果を追加
 	bool DelReserve(DWORD reserveID, vector<CHECK_RESULT>* retList = nullptr);

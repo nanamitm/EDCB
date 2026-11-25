@@ -41,7 +41,7 @@ public:
 	//予約情報を変更する
 	bool ChgReserveData(const vector<RESERVE_DATA>& reserveList, bool setReserveStatus = false);
 	//予約情報を削除する
-	void DelReserveData(const vector<DWORD>& idList);
+	bool DelReserveData(const vector<DWORD>& idList);
 	//リスト指定または!idListですべての録画済み情報一覧を取得する
 	vector<REC_FILE_INFO> GetRecFileInfoList(const vector<DWORD>* idList, bool getExtraInfo = true) const;
 	//録画済み情報を取得する
@@ -145,7 +145,7 @@ private:
 	//予約終了を処理する
 	//tunerID: 終了したチューナID
 	//shutdownMode: 最後に処理した予約の録画後動作を記録
-	void ProcessRecEnd(const vector<CTunerBankCtrl::CHECK_RESULT>& retList, DWORD tunerID = 0, int* shutdownMode = nullptr);
+	void ProcessRecEnd(const vector<CTunerBankCtrl::CHECK_RESULT>& retList, DWORD tunerID = 0, int* shutdownMode = nullptr, bool reserveSaved = false);
 	//EPG取得可能なチューナのリストを取得する
 	vector<CTunerBankCtrl*> GetEpgCapTunerList(LONGLONG now) const;
 	//EPG取得処理を管理する

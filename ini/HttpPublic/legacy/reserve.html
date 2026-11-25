@@ -23,8 +23,8 @@ post=AssertPost()
 if post then
   focus=edcb.GetReserveData(GetVarInt(post,'del') or 0)
   if focus then
-    edcb.DelReserveData(focus.reserveID)
-    ct:Append('  <div id="result">削除しました</div>\n')
+    local ok=edcb.DelReserveData(focus.reserveID)~=false
+    ct:Append('  <div id="result">'..(ok and '削除しました' or '予約の削除を保存できませんでした')..'</div>\n')
   end
 end
 

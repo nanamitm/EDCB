@@ -1165,7 +1165,7 @@ edcb.os.execute('echo %hoge% %fuga% & pause', true, {hoge='ほげ♪',fuga='ふ�
 - 予約を変更する  
   失敗時はfalse。
 
-`DelReserveData( 予約ID:I )`
+`DelReserveData( 予約ID:I ) ＝ 成功したか:B`
 - 予約を削除する
 
 `GetReserveData() → <予約情報>のリスト`  

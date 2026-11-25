@@ -288,13 +288,26 @@ bool CReserveManager::AddReserveData(const vector<RESERVE_DATA>& reserveList, bo
 
 bool CReserveManager::ChgReserveData(const vector<RESERVE_DATA>& reserveList, bool setReserveStatus)
 {
+	if( reserveList.empty() ){
+		return false;
+	}
 	lock_recursive_mutex lock(this->managerLock);
 
+	CParseReserveText pendingReserveText = this->reserveText;
+	map<DWORD, size_t> lastChange;
+	for( size_t i = 0; i < reserveList.size(); i++ ){
+		lastChange[reserveList[i].reserveID] = i;
+	}
+	//保存した変更だけをチューナーに適用する。
+	vector<std::function<void()>> bankChanges;
 	bool modified = false;
 	LONGLONG minStartTime = LLONG_MAX;
 	vector<CBatManager::BAT_WORK_INFO> batWorkList;
 	for( size_t i = 0; i < reserveList.size(); i++ ){
 		RESERVE_DATA r = reserveList[i];
+		if( lastChange.at(r.reserveID) != i ){
+			continue;
+		}
 		map<DWORD, RESERVE_DATA>::const_iterator itr = this->reserveText.GetMap().find(r.reserveID);
 		if( itr != this->reserveText.GetMap().end() ){
 			if( r.recSetting.IsNoRec() && this->setting.fixNoRecToServiceOnly ){
@@ -312,11 +325,13 @@ bool CReserveManager::ChgReserveData(const vector<RESERVE_DATA>& reserveList, bo
 			if( r.recSetting.IsNoRec() ){
 				if( itr->second.recSetting.IsNoRec() == false ){
 					//バンクから削除
-					for( const auto& tunerBank : this->tunerBankMap ){
-						if( tunerBank.second->DelReserve(r.reserveID) ){
-							break;
+					bankChanges.emplace_back([this, id = r.reserveID]() {
+						for( const auto& tunerBank : this->tunerBankMap ){
+							if( tunerBank.second->DelReserve(id) ){
+								break;
+							}
 						}
-					}
+					});
 					r.overlapMode = RESERVE_EXECUTE;
 					LONGLONG startTime;
 					CalcEntireReserveTime(&startTime, nullptr, itr->second);
@@ -353,7 +368,7 @@ bool CReserveManager::ChgReserveData(const vector<RESERVE_DATA>& reserveList, bo
 				bool bankDeleted = false;
 				auto jtr = this->tunerBankMap.cbegin();
 				for( ; jtr != this->tunerBankMap.end(); jtr++ ){
-					if( jtr->second->ChgCtrlReserve(&tr) ){
+					if( jtr->second->PrepareCtrlReserve(&tr) ){
 						//この予約はこのバンクに待機状態で存在する
 						if( tr.onid != r.originalNetworkID ||
 						    tr.tsid != r.transportStreamID ||
@@ -364,9 +379,10 @@ bool CReserveManager::ChgReserveData(const vector<RESERVE_DATA>& reserveList, bo
 						    tr.startMargin != startMargin ||
 						    tr.endMargin != endMargin ){
 							//必ず変更すべきフィールドを変更できなかったので待機状態を解除する
-							jtr->second->DelReserve(r.reserveID);
+							bankChanges.emplace_back([bank = jtr->second.get(), id = r.reserveID]() { bank->DelReserve(id); });
 							bankDeleted = true;
 						}else{
+							bankChanges.emplace_back([bank = jtr->second.get(), tr]() { bank->ApplyCtrlReserve(tr); });
 							//必ずしも変更する必要のないフィールドは妥協する
 							r.title = tr.title;
 							r.stationName = tr.stationName;
@@ -389,12 +405,14 @@ bool CReserveManager::ChgReserveData(const vector<RESERVE_DATA>& reserveList, bo
 				}
 				if( jtr == this->tunerBankMap.end() ){
 					//この予約は待機状態ではないので単純に削除と追加で更新できる
-					for( const auto& tunerBank : this->tunerBankMap ){
-						if( tunerBank.second->DelReserve(tr.reserveID) ){
-							tunerBank.second->AddReserve(tr);
-							break;
+					bankChanges.emplace_back([this, tr]() {
+						for( const auto& tunerBank : this->tunerBankMap ){
+							if( tunerBank.second->DelReserve(tr.reserveID) ){
+								tunerBank.second->AddReserve(tr);
+								break;
+							}
 						}
-					}
+					});
 				}
 
 				//これらのフィールドに変化がなければバンク配置を再構築する必要はない
@@ -420,13 +438,20 @@ bool CReserveManager::ChgReserveData(const vector<RESERVE_DATA>& reserveList, bo
 				AddReserveDataMacro(batWorkList.back().macroList, itr->second, "OLD");
 				AddReserveDataMacro(batWorkList.back().macroList, r, "");
 			}
-			this->reserveText.ChgReserve(r);
-			this->reserveModified = true;
+			pendingReserveText.ChgReserve(r);
 			modified = true;
 		}
 	}
 	if( modified ){
-		this->reserveText.SaveText();
+		if( pendingReserveText.SaveText() == false ){
+			AddDebugLog(L"CReserveManager::ChgReserveData(): Cannot save reservations");
+			return false;
+		}
+		for( const auto& change : bankChanges ){
+			change();
+		}
+		this->reserveText = std::move(pendingReserveText);
+		this->reserveModified = true;
 		ReloadBankMap(minStartTime);
 		CheckAutoDel();
 		AddNotifyAndPostBat(NOTIFY_UPDATE_RESERVE_INFO);
@@ -436,13 +461,28 @@ bool CReserveManager::ChgReserveData(const vector<RESERVE_DATA>& reserveList, bo
 	return false;
 }
 
-void CReserveManager::DelReserveData(const vector<DWORD>& idList)
+bool CReserveManager::DelReserveData(const vector<DWORD>& idList)
 {
 	lock_recursive_mutex lock(this->managerLock);
 
+	CParseReserveText pendingReserveText = this->reserveText;
+	vector<DWORD> deletedIds;
+	for( DWORD id : idList ){
+		if( pendingReserveText.DelReserve(id) ){
+			deletedIds.push_back(id);
+		}
+	}
+	if( deletedIds.empty() ){
+		return true;
+	}
+	if( pendingReserveText.SaveText() == false ){
+		AddDebugLog(L"CReserveManager::DelReserveData(): Cannot save reservations");
+		return false;
+	}
+
 	vector<CTunerBankCtrl::CHECK_RESULT> retList;
 	LONGLONG minStartTime = LLONG_MAX;
-	for( DWORD id : idList ){
+	for( DWORD id : deletedIds ){
 		map<DWORD, RESERVE_DATA>::const_iterator itr = this->reserveText.GetMap().find(id);
 		if( itr != this->reserveText.GetMap().end() ){
 			if( itr->second.recSetting.IsNoRec() == false ){
@@ -464,19 +504,13 @@ void CReserveManager::DelReserveData(const vector<DWORD>& idList)
 			itrRet->type = CTunerBankCtrl::CHECK_END_CANCEL;
 		}
 	}
-	ProcessRecEnd(retList);
-	bool modified = false;
-	for( DWORD id : idList ){
-		if( this->reserveText.DelReserve(id) ){
-			this->reserveModified = true;
-			modified = true;
-		}
-	}
+	//終了履歴を元の予約情報から生成する。削除後の予約一覧はすでに保存済み。
+	ProcessRecEnd(retList, 0, nullptr, true);
+	this->reserveText = std::move(pendingReserveText);
+	this->reserveModified = true;
 	ReloadBankMap(minStartTime);
-	if( modified ){
-		this->reserveText.SaveText();
-		AddNotifyAndPostBat(NOTIFY_UPDATE_RESERVE_INFO);
-	}
+	AddNotifyAndPostBat(NOTIFY_UPDATE_RESERVE_INFO);
+	return true;
 }
 
 vector<REC_FILE_INFO> CReserveManager::GetRecFileInfoList(const vector<DWORD>* idList, bool getExtraInfo) const
@@ -1357,7 +1391,7 @@ void CReserveManager::CheckOverTimeReserve()
 	}
 }
 
-void CReserveManager::ProcessRecEnd(const vector<CTunerBankCtrl::CHECK_RESULT>& retList, DWORD tunerID, int* shutdownMode)
+void CReserveManager::ProcessRecEnd(const vector<CTunerBankCtrl::CHECK_RESULT>& retList, DWORD tunerID, int* shutdownMode, bool reserveSaved)
 {
 	vector<CBatManager::BAT_WORK_INFO> batWorkList;
 	bool modified = false;
@@ -1475,7 +1509,9 @@ void CReserveManager::ProcessRecEnd(const vector<CTunerBankCtrl::CHECK_RESULT>& 
 		}
 	}
 	if( modified ){
-		this->reserveText.SaveText();
+		if( reserveSaved == false ){
+			this->reserveText.SaveText();
+		}
 		this->recInfoText.SaveText();
 		this->recInfo2Text.SaveText();
 		AddNotifyAndPostBat(NOTIFY_UPDATE_RESERVE_INFO);

@@ -96,8 +96,8 @@ if post then
     ct:Append('  <div id="result">'..(Change(id,post) and '変更しました' or '入力値不正')..'</div>\n')
   elseif mg.get_var(post,'del') then
     rdel=edcb.GetReserveData(id)
-    edcb.DelReserveData(id)
-    ct:Append('  <div id="result">削除しました</div>\n')
+    local ok=edcb.DelReserveData(id)~=false
+    ct:Append('  <div id="result">'..(ok and '削除しました' or '予約の削除を保存できませんでした')..'</div>\n')
   end
 end
 

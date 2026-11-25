@@ -83,7 +83,7 @@ bool CTunerBankCtrl::AddReserve(const TUNER_RESERVE& reserve)
 	return true;
 }
 
-bool CTunerBankCtrl::ChgCtrlReserve(TUNER_RESERVE* reserve)
+bool CTunerBankCtrl::PrepareCtrlReserve(TUNER_RESERVE* reserve) const
 {
 	auto itr = this->reserveMap.find(reserve->reserveID);
 	if( itr != this->reserveMap.end() && itr->second.state != TR_IDLE ){
@@ -112,14 +112,18 @@ bool CTunerBankCtrl::ChgCtrlReserve(TUNER_RESERVE* reserve)
 				reserve->startMargin = save.startMargin;
 			}
 		}
-		TUNER_RESERVE_WORK& r = itr->second;
-		static_cast<TUNER_RESERVE&>(r) = *reserve;
-		//内部パラメータを再計算
-		r.startOrder = (r.startTime - r.startMargin) / I64_1SEC << 16 | (r.reserveID & 0xFFFF);
-		r.effectivePriority = (this->backPriority ? -1 : 1) * ((LONGLONG)((this->backPriority ? r.priority : ~r.priority) & 7) << 60 | r.startOrder);
 		return true;
 	}
 	return false;
+}
+
+void CTunerBankCtrl::ApplyCtrlReserve(const TUNER_RESERVE& reserve)
+{
+	TUNER_RESERVE_WORK& r = this->reserveMap.at(reserve.reserveID);
+	static_cast<TUNER_RESERVE&>(r) = reserve;
+	//内部パラメータを再計算
+	r.startOrder = (r.startTime - r.startMargin) / I64_1SEC << 16 | (r.reserveID & 0xFFFF);
+	r.effectivePriority = (this->backPriority ? -1 : 1) * ((LONGLONG)((this->backPriority ? r.priority : ~r.priority) & 7) << 60 | r.startOrder);
 }
 
 bool CTunerBankCtrl::DelReserve(DWORD reserveID, vector<CHECK_RESULT>* retList)
