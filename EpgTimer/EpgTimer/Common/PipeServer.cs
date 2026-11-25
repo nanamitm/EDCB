@@ -7,6 +7,7 @@ using System.Collections;
 using System.Threading;
 using System.IO.Pipes;
 using System.Security.AccessControl;
+using System.Security.Principal;
 
 namespace EpgTimer
 {
@@ -14,6 +15,9 @@ namespace EpgTimer
     {
         private Thread m_ServerThread = null;
         private AutoResetEvent m_StopEvent = new AutoResetEvent(false);
+
+        /// <summary>受信するコマンドのデータサイズの上限(サーバからのコマンドに必要な大きさに対して十分大きい)</summary>
+        private const uint MaxCommandDataSize = 16 * 1024 * 1024;
 
         public PipeServer(string eventName, string pipeName, Func<uint, byte[], Tuple<ErrCode, byte[], uint>> cmdProc)
         {
@@ -37,18 +41,21 @@ namespace EpgTimer
                 new NamedPipeServerStream(
 #endif
                     pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 1024, 1024,
-                    null, System.IO.HandleInheritability.None, trustee == null ? 0 : PipeAccessRights.ChangePermissions);
-            if (trustee != null)
+                    null, System.IO.HandleInheritability.None, PipeAccessRights.ChangePermissions);
+            try
             {
-                try
+                PipeSecurity sec = pipe.GetAccessControl();
+                if (trustee != null)
                 {
-                    PipeSecurity sec = pipe.GetAccessControl();
                     sec.AddAccessRule(new PipeAccessRule(trustee, PipeAccessRights.ReadWrite, AccessControlType.Allow));
-                    pipe.SetAccessControl(sec);
                 }
-                catch
-                {
-                }
+                // ネットワーク(SMB)経由の接続を拒否する(PIPE_REJECT_REMOTE_CLIENTSに相当)
+                sec.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.NetworkSid, null),
+                                                     PipeAccessRights.FullControl, AccessControlType.Deny));
+                pipe.SetAccessControl(sec);
+            }
+            catch
+            {
             }
 
             m_ServerThread = new Thread(new ThreadStart(() =>
@@ -72,24 +79,33 @@ namespace EpgTimer
                         }
                         if (pipe.IsConnected)
                         {
-                            byte[] bHead = new byte[8];
-                            if (ReadAll(pipe, bHead, 0, 8) == 8)
+                            // 相手の切断や不正なデータでスレッドを終わらせない
+                            try
                             {
-                                uint cmdParam = BitConverter.ToUInt32(bHead, 0);
-                                byte[] cmdData = new byte[BitConverter.ToUInt32(bHead, 4)];
-                                if (ReadAll(pipe, cmdData, 0, cmdData.Length) == cmdData.Length)
+                                byte[] bHead = new byte[8];
+                                if (ReadAll(pipe, bHead, 0, 8) == 8)
                                 {
-                                    Tuple<ErrCode, byte[], uint> res = cmdProc.Invoke(cmdParam, cmdData);
-                                    BitConverter.GetBytes((uint)res.Item1).CopyTo(bHead, 0);
-                                    BitConverter.GetBytes(res.Item2 == null ? 0 : res.Item2.Length).CopyTo(bHead, 4);
-                                    pipe.Write(bHead, 0, 8);
-                                    if (res.Item2 != null && res.Item2.Length > 0)
+                                    uint cmdParam = BitConverter.ToUInt32(bHead, 0);
+                                    uint cmdSize = BitConverter.ToUInt32(bHead, 4);
+                                    byte[] cmdData = cmdSize <= MaxCommandDataSize ? new byte[cmdSize] : null;
+                                    if (cmdData != null && ReadAll(pipe, cmdData, 0, cmdData.Length) == cmdData.Length)
                                     {
-                                        pipe.Write(res.Item2, 0, res.Item2.Length);
+                                        Tuple<ErrCode, byte[], uint> res = cmdProc.Invoke(cmdParam, cmdData);
+                                        BitConverter.GetBytes((uint)res.Item1).CopyTo(bHead, 0);
+                                        BitConverter.GetBytes(res.Item2 == null ? 0 : res.Item2.Length).CopyTo(bHead, 4);
+                                        pipe.Write(bHead, 0, 8);
+                                        if (res.Item2 != null && res.Item2.Length > 0)
+                                        {
+                                            pipe.Write(res.Item2, 0, res.Item2.Length);
+                                        }
                                     }
                                 }
+                                pipe.WaitForPipeDrain();
                             }
-                            pipe.WaitForPipeDrain();
+                            catch (Exception ex)
+                            {
+                                System.Diagnostics.Trace.WriteLine(ex);
+                            }
                             pipe.Disconnect();
                         }
                     }
