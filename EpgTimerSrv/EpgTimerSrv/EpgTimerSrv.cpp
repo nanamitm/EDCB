@@ -31,7 +31,9 @@ std::recursive_mutex g_debugLogLock;
 namespace
 {
 SERVICE_STATUS_HANDLE g_hStatusHandle;
+//service_ctrl()は別スレッドから呼ばれるので、g_pMainの参照と破棄をg_mainLockで排他する
 CEpgTimerSrvMain* g_pMain;
+std::mutex g_mainLock;
 
 //サービス動作用のメイン
 void WINAPI service_main(DWORD dwArgc, LPWSTR* lpszArgv);
@@ -160,14 +162,21 @@ void WINAPI service_main(DWORD dwArgc, LPWSTR* lpszArgv)
 		{
 			//ここでは単純な(時間のかからない)初期化のみ行う
 			CEpgTimerSrvMain appMain;
-			g_pMain = &appMain;
+			{
+				std::lock_guard<std::mutex> lock(g_mainLock);
+				g_pMain = &appMain;
+			}
 
 			ReportServiceStatus(SERVICE_RUNNING, SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN | SERVICE_ACCEPT_POWEREVENT, 0, 0);
 
 			if( appMain.Main(true) == false ){
 				AddDebugLog(L"service_main(): Failed to start");
 			}
-			g_pMain = nullptr;
+			{
+				//以後のservice_ctrl()が破棄済みのappMainを参照しないように
+				std::lock_guard<std::mutex> lock(g_mainLock);
+				g_pMain = nullptr;
+			}
 		}
 		CoUninitialize();
 
@@ -183,13 +192,19 @@ DWORD WINAPI service_ctrl(DWORD dwControl, DWORD dwEventType, LPVOID lpEventData
 		case SERVICE_CONTROL_STOP:
 		case SERVICE_CONTROL_SHUTDOWN:
 			ReportServiceStatus(SERVICE_STOP_PENDING, 0, 0, 10000);
-			g_pMain->StopMain();
+			{
+				std::lock_guard<std::mutex> lock(g_mainLock);
+				if( g_pMain ){
+					g_pMain->StopMain();
+				}
+			}
 			return NO_ERROR;
 		case SERVICE_CONTROL_POWEREVENT:
 			if( dwEventType == PBT_APMQUERYSUSPEND ){
 				//Vista以降は呼ばれない
 				AddDebugLog(L"PBT_APMQUERYSUSPEND");
-				if( g_pMain->IsSuspendOK() == false ){
+				std::lock_guard<std::mutex> lock(g_mainLock);
+				if( g_pMain && g_pMain->IsSuspendOK() == false ){
 					AddDebugLog(L"BROADCAST_QUERY_DENY");
 					return BROADCAST_QUERY_DENY;
 				}
