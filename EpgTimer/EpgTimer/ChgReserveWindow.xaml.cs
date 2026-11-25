@@ -194,7 +194,12 @@ namespace EpgTimer
             {
                 var startTime = DateTime.MaxValue;
                 var endTime = DateTime.MinValue;
-                if (datePicker_start.SelectedDate != null && datePicker_end.SelectedDate != null)
+                if (datePicker_start.SelectedDate == null || datePicker_end.SelectedDate == null)
+                {
+                    MessageBox.Show("日付が選択されていません");
+                    return;
+                }
+                else
                 {
                     startTime = new DateTime(datePicker_start.SelectedDate.Value.Year,
                                              datePicker_start.SelectedDate.Value.Month,
@@ -212,6 +217,12 @@ namespace EpgTimer
                 if (startTime > endTime)
                 {
                     MessageBox.Show("終了日時が開始日時より前です");
+                    return;
+                }
+                if (startTime == endTime)
+                {
+                    //長さ0では録画されない予約になる
+                    MessageBox.Show("開始日時と終了日時が同じです");
                     return;
                 }
 
