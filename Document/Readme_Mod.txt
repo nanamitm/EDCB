@@ -1206,8 +1206,9 @@ edcb.os.execute('echo %hoge% %fuga% & pause', true, {hoge='ほげ♪',fuga='ふ�
 `ChgPathRecFileInfo( 情報ID:I, 録画ファイルパス:S ) ＝ 成功したか:B`
 - 録画済み情報の録画ファイルパスを変更し、変更を保存できたか返す
 
-`ChgProtectRecFileInfo( 情報ID:I, プロテクト:B )`
-- 録画済み情報のプロテクトを変更する
+`ChgProtectRecFileInfo( 情報ID:I, プロテクト:B ) ＝ 成功したか:B`
+- 録画済み情報のプロテクトを変更し、変更を保存できたか返す
+  保存できなかったときは変更しない。
 
 `DelRecFileInfo( 情報ID:I )`
 - 録画済み情報を削除する

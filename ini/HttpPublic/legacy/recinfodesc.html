@@ -26,8 +26,12 @@ w=edcb.GetRecFileInfoBasic(id)
 post=AssertPost()
 if post then
   if mg.get_var(post,'protect') then
-    edcb.ChgProtectRecFileInfo(id,mg.get_var(post,'protect')=='y')
-    ct:Append('  <div id="result">変更しました</div>\n')
+    --戻り値のない旧版のサーバーではnil
+    if edcb.ChgProtectRecFileInfo(id,mg.get_var(post,'protect')=='y')~=false then
+      ct:Append('  <div id="result">変更しました</div>\n')
+    else
+      ct:Append('  <div id="result">変更を保存できませんでした</div>\n')
+    end
   elseif mg.get_var(post,'ren') then
     ren=DocumentToNativePath(mg.get_var(post,'ren'))
     if not w or not ren then
