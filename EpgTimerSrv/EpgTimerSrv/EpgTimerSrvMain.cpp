@@ -4136,9 +4136,24 @@ int CEpgTimerSrvMain::LuaRenameFileNoReplace(lua_State* L)
 		wstring source, destination;
 		UTF8toW(from, source);
 		UTF8toW(to, destination);
-		renamed = MoveFileEx(source.c_str(), destination.c_str(), 0) != FALSE;
-#elif defined(SYS_renameat2) && defined(RENAME_NOREPLACE)
-		renamed = syscall(SYS_renameat2, AT_FDCWD, from, AT_FDCWD, to, RENAME_NOREPLACE) == 0;
+		//os.rename(_wrename)と同じく別ドライブへの移動も許可する。上書きはしない
+		renamed = MoveFileEx(source.c_str(), destination.c_str(), MOVEFILE_COPY_ALLOWED) != FALSE;
+#else
+		bool tryPlainRename = true;
+#if defined(SYS_renameat2) && defined(RENAME_NOREPLACE)
+		if( syscall(SYS_renameat2, AT_FDCWD, from, AT_FDCWD, to, RENAME_NOREPLACE) == 0 ){
+			renamed = true;
+			tryPlainRename = false;
+		}else{
+			//NFSやFUSEなどRENAME_NOREPLACEに未対応の場合だけ、次の方法で移動する
+			tryPlainRename = errno == EINVAL || errno == ENOSYS;
+		}
+#endif
+		//原子的ではないが、従来どおり移動先が無いことを確認してから移動する
+		struct stat st;
+		if( tryPlainRename && lstat(to, &st) != 0 && errno == ENOENT ){
+			renamed = ::rename(from, to) == 0;
+		}
 #endif
 	}
 	lua_pushboolean(L, renamed);
