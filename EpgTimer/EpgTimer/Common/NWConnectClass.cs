@@ -16,6 +16,11 @@ namespace EpgTimer
         private Thread workerThread = null;
         private AutoResetEvent stopEvent = null;
 
+        /// <summary>受信するコマンドのデータサイズの上限(通知に必要な大きさに対して十分大きい)</summary>
+        private const uint MaxCommandDataSize = 16 * 1024 * 1024;
+        /// <summary>待ち受け方式で相手からのデータが途絶えたとみなすまでの時間</summary>
+        private const int WaitPortIdleTimeOut = 10000;
+
         public static bool SendMagicPacket(byte[] physicalAddress, out int ifCount, out int ifTotal)
         {
             byte[] dgram = new byte[6 + physicalAddress.Length * 16];
@@ -121,24 +126,37 @@ namespace EpgTimer
                             client = server.EndAcceptTcpClient(ar);
                         }
                         using (client)
-                        using (NetworkStream stream = client.GetStream())
                         {
-                            byte[] bHead = new byte[8];
-                            if (ReadAll(stream, bHead, 0, 8) == 8)
+                            //ネットワーク上の誰からでも接続できるので、不正なデータや無通信の接続で待ち受けが止まったり落ちたりしないようにする
+                            try
                             {
-                                uint cmdParam = BitConverter.ToUInt32(bHead, 0);
-                                byte[] cmdData = new byte[BitConverter.ToUInt32(bHead, 4)];
-                                if (ReadAll(stream, cmdData, 0, cmdData.Length) == cmdData.Length)
+                                client.ReceiveTimeout = WaitPortIdleTimeOut;
+                                client.SendTimeout = WaitPortIdleTimeOut;
+                                using (NetworkStream stream = client.GetStream())
                                 {
-                                    Tuple<ErrCode, byte[], uint> res = cmdProc(cmdParam, cmdData);
-                                    BitConverter.GetBytes((uint)res.Item1).CopyTo(bHead, 0);
-                                    BitConverter.GetBytes(res.Item2 == null ? 0 : res.Item2.Length).CopyTo(bHead, 4);
-                                    stream.Write(bHead, 0, 8);
-                                    if (res.Item2 != null && res.Item2.Length > 0)
+                                    byte[] bHead = new byte[8];
+                                    if (ReadAll(stream, bHead, 0, 8) == 8)
                                     {
-                                        stream.Write(res.Item2, 0, res.Item2.Length);
+                                        uint cmdParam = BitConverter.ToUInt32(bHead, 0);
+                                        uint cmdSize = BitConverter.ToUInt32(bHead, 4);
+                                        byte[] cmdData = cmdSize <= MaxCommandDataSize ? new byte[cmdSize] : null;
+                                        if (cmdData != null && ReadAll(stream, cmdData, 0, cmdData.Length) == cmdData.Length)
+                                        {
+                                            Tuple<ErrCode, byte[], uint> res = cmdProc(cmdParam, cmdData);
+                                            BitConverter.GetBytes((uint)res.Item1).CopyTo(bHead, 0);
+                                            BitConverter.GetBytes(res.Item2 == null ? 0 : res.Item2.Length).CopyTo(bHead, 4);
+                                            stream.Write(bHead, 0, 8);
+                                            if (res.Item2 != null && res.Item2.Length > 0)
+                                            {
+                                                stream.Write(res.Item2, 0, res.Item2.Length);
+                                            }
+                                        }
                                     }
                                 }
+                            }
+                            catch (Exception ex)
+                            {
+                                System.Diagnostics.Trace.WriteLine(ex);
                             }
                         }
                     }
@@ -218,16 +236,29 @@ namespace EpgTimer
                                         continue;
                                     }
                                 }
-                                if (readSize > 0 && ReadAll(stream, bHead, readSize, 8 - readSize) == 8 - readSize)
+                                bool failed = false;
+                                try
                                 {
-                                    uint cmdParam = BitConverter.ToUInt32(bHead, 0);
-                                    byte[] cmdData = new byte[BitConverter.ToUInt32(bHead, 4)];
-                                    if (ReadAll(stream, cmdData, 0, cmdData.Length) == cmdData.Length && cmdParam == (uint)ErrCode.CMD_SUCCESS)
+                                    if (readSize > 0 && ReadAll(stream, bHead, readSize, 8 - readSize) == 8 - readSize)
                                     {
-                                        //通常の通知コマンドに変換
-                                        targetCount = cmdProc((uint)CtrlCmd.CMD_TIMER_GUI_SRV_STATUS_NOTIFY2, cmdData).Item3;
+                                        uint cmdParam = BitConverter.ToUInt32(bHead, 0);
+                                        uint cmdSize = BitConverter.ToUInt32(bHead, 4);
+                                        byte[] cmdData = cmdSize <= MaxCommandDataSize ? new byte[cmdSize] : null;
+                                        if (cmdData != null && ReadAll(stream, cmdData, 0, cmdData.Length) == cmdData.Length && cmdParam == (uint)ErrCode.CMD_SUCCESS)
+                                        {
+                                            //通常の通知コマンドに変換
+                                            targetCount = cmdProc((uint)CtrlCmd.CMD_TIMER_GUI_SRV_STATUS_NOTIFY2, cmdData).Item3;
+                                        }
                                     }
                                 }
+                                catch (Exception ex)
+                                {
+                                    //通信の失敗や不正な応答で通知の待ち受けを終わらせない
+                                    System.Diagnostics.Trace.WriteLine(ex);
+                                    failed = true;
+                                }
+                                //少し待つ
+                                if (failed && stopEvent.WaitOne(5000)) break;
                             }
                         }
                     }

@@ -717,7 +717,12 @@ namespace EpgTimer
                         return ErrCode.CMD_ERR_DISCONNECT;
                     }
                     uint resParam = BitConverter.ToUInt32(head, 0);
-                    var resData = new byte[BitConverter.ToUInt32(head, 4)];
+                    uint resSize = BitConverter.ToUInt32(head, 4);
+                    if (resSize > maxResponseDataSize)
+                    {
+                        return ErrCode.CMD_ERR;
+                    }
+                    var resData = new byte[resSize];
                     if (ReadAll(pipe, resData, 0, resData.Length) != resData.Length)
                     {
                         return ErrCode.CMD_ERR_DISCONNECT;
@@ -734,6 +739,9 @@ namespace EpgTimer
             for (int m; n < size && (m = s.Read(buffer, offset + n, size - n)) > 0; n += m) ;
             return n;
         }
+
+        /// <summary>応答のデータサイズの上限。番組情報の一括取得などに備えて大きくし、これを超える応答は不正とみなす</summary>
+        private const uint maxResponseDataSize = 1024 * 1024 * 1024;
 
         /// <summary>TCPの送受信でデータが途絶えたとみなすまでの時間。応答全体の上限ではないので、大きな応答も受信し続けられる</summary>
         private const int tcpIdleTimeOut = 60000;
@@ -802,7 +810,12 @@ namespace EpgTimer
                             return ErrCode.CMD_ERR_DISCONNECT;
                         }
                         uint resParam = BitConverter.ToUInt32(responseHeader, 0);
-                        var resData = new byte[BitConverter.ToUInt32(responseHeader, 4)];
+                        uint resSize = BitConverter.ToUInt32(responseHeader, 4);
+                        if (resSize > maxResponseDataSize)
+                        {
+                            return ErrCode.CMD_ERR;
+                        }
+                        var resData = new byte[resSize];
                         if (!ReadTcpResponse(stream, resData))
                         {
                             return ErrCode.CMD_ERR_DISCONNECT;
