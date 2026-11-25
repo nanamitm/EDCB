@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Net.Sockets;
 using System.Text;
@@ -522,7 +521,7 @@ namespace EpgTimer
             this.ip = ip;
             this.port = port;
         }
-        /// <summary>タイムアウト設定。TCPは接続から応答完了までの上限</summary>
+        /// <summary>接続処理時のタイムアウト設定(TCPの送受信には使わない)</summary>
         public void SetConnectTimeOut(int timeOut)
         {
             connectTimeOut = timeOut;
@@ -736,22 +735,14 @@ namespace EpgTimer
             return n;
         }
 
-        private int RemainingTcpTime(Stopwatch timer)
-        {
-            long remaining = connectTimeOut - timer.ElapsedMilliseconds;
-            if (remaining <= 0)
-            {
-                throw new TimeoutException();
-            }
-            return (int)remaining;
-        }
+        /// <summary>TCPの送受信でデータが途絶えたとみなすまでの時間。応答全体の上限ではないので、大きな応答も受信し続けられる</summary>
+        private const int tcpIdleTimeOut = 60000;
 
-        private bool ReadTcpResponse(NetworkStream stream, byte[] buffer, Stopwatch timer)
+        private static bool ReadTcpResponse(NetworkStream stream, byte[] buffer)
         {
             int offset = 0;
             while (offset < buffer.Length)
             {
-                stream.ReadTimeout = RemainingTcpTime(timer);
                 int size = stream.Read(buffer, offset, buffer.Length - offset);
                 if (size == 0)
                 {
@@ -769,20 +760,15 @@ namespace EpgTimer
                 return ErrCode.CMD_ERR_CONNECT;
             }
 
-            var timer = Stopwatch.StartNew();
             using (var tcp = new TcpClient(ip.AddressFamily))
             {
                 try
                 {
                     // タイムアウトした接続はTcpClientの破棄で中止する。
-                    if (!tcp.ConnectAsync(ip, (int)port).Wait(RemainingTcpTime(timer)))
+                    if (!tcp.ConnectAsync(ip, (int)port).Wait(connectTimeOut))
                     {
                         return ErrCode.CMD_ERR_TIMEOUT;
                     }
-                }
-                catch (TimeoutException)
-                {
-                    return ErrCode.CMD_ERR_TIMEOUT;
                 }
                 catch (AggregateException ex) when (ex.InnerException is SocketException)
                 {
@@ -806,26 +792,24 @@ namespace EpgTimer
                             send.ToArray().CopyTo(head, 8);
                         }
 
-                        stream.WriteTimeout = RemainingTcpTime(timer);
+                        // 送受信は無通信の時間で打ち切る。サーバーの処理や回線が遅くても、データが届き続ける限り待つ
+                        stream.WriteTimeout = tcpIdleTimeOut;
+                        stream.ReadTimeout = tcpIdleTimeOut;
                         stream.Write(head, 0, head.Length);
                         var responseHeader = new byte[8];
-                        if (!ReadTcpResponse(stream, responseHeader, timer))
+                        if (!ReadTcpResponse(stream, responseHeader))
                         {
                             return ErrCode.CMD_ERR_DISCONNECT;
                         }
                         uint resParam = BitConverter.ToUInt32(responseHeader, 0);
                         var resData = new byte[BitConverter.ToUInt32(responseHeader, 4)];
-                        if (!ReadTcpResponse(stream, resData, timer))
+                        if (!ReadTcpResponse(stream, resData))
                         {
                             return ErrCode.CMD_ERR_DISCONNECT;
                         }
                         res = new MemoryStream(resData, false);
                         return Enum.IsDefined(typeof(ErrCode), resParam) ? (ErrCode)resParam : ErrCode.CMD_ERR;
                     }
-                }
-                catch (TimeoutException)
-                {
-                    return ErrCode.CMD_ERR_TIMEOUT;
                 }
                 catch (IOException ex) when (ex.InnerException is SocketException socketError &&
                                              (socketError.SocketErrorCode == SocketError.TimedOut ||
