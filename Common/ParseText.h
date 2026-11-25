@@ -211,6 +211,12 @@ bool CParseText<M>::SaveText(string* saveToStr) const
 			}
 			SleepForMsec(200 * retry);
 		}
+	}else if( saveToStr == nullptr ){
+		AddDebugLog(L"CParseText<>::SaveText(): Error: Cannot write file");
+	}
+	if( saveToStr == nullptr ){
+		//書き込みか置き換えに失敗した一時ファイルを残さない
+		DeleteFile((this->filePath + L".tmp").c_str());
 	}
 	return false;
 }
