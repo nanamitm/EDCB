@@ -13,8 +13,10 @@ using System.Windows.Shapes;
 
 namespace EpgTimer
 {
-    class RecInfoItem
+    class RecInfoItem : System.ComponentModel.INotifyPropertyChanged
     {
+        public event System.ComponentModel.PropertyChangedEventHandler PropertyChanged;
+
         public RecInfoItem(RecFileInfo info, Dictionary<char, List<KeyValuePair<string, string>>> replaceRecFilePathDictionary)
         {
             RecInfo = info;
@@ -34,8 +36,28 @@ namespace EpgTimer
         {
             set
             {
+                byte previous = RecInfo.ProtectFlag;
                 RecInfo.ProtectFlag = Convert.ToByte(value);
-                CommonManager.CreateSrvCtrl().SendChgProtectRecInfo(new List<RecFileInfo>() { RecInfo });
+                string error = null;
+                try
+                {
+                    ErrCode err = CommonManager.CreateSrvCtrl().SendChgProtectRecInfo(new List<RecFileInfo>() { RecInfo });
+                    if (err != ErrCode.CMD_SUCCESS)
+                    {
+                        error = CommonManager.GetErrCodeText(err) ?? "プロテクトを変更できませんでした。";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    error = ex.Message;
+                }
+                if (error != null)
+                {
+                    //サーバーに反映されていないので、表示を元に戻す
+                    RecInfo.ProtectFlag = previous;
+                    PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IsProtect)));
+                    MessageBox.Show("プロテクトを変更できませんでした。\r\n" + error);
+                }
             }
             get { return RecInfo.ProtectFlag != 0; }
         }
