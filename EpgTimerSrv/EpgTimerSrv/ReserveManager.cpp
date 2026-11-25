@@ -1188,6 +1188,11 @@ void CReserveManager::CheckAutoDel() const
 		return;
 	}
 
+	vector<wstring> activeRecPaths;
+	for( const auto& tunerBank : this->tunerBankMap ){
+		tunerBank.second->GetActiveRecFilePaths(activeRecPaths);
+	}
+
 	//ファイル削除可能なフォルダのドライブを調べる
 	vector<wstring> mountList;
 	for( size_t i = 0; i < this->setting.delChkList.size(); i++ ){
@@ -1257,18 +1262,35 @@ void CReserveManager::CheckAutoDel() const
 					[](const pair<UTIL_FIND_DATA, size_t>& a, const pair<UTIL_FIND_DATA, size_t>& b) {
 						return a.first.lastWriteTime < b.first.lastWriteTime; });
 				fs_path delPath = fs_path(this->setting.delChkList[jtr->second]).append(jtr->first.fileName);
-				if( this->recInfoText.GetMap().end() != std::find_if(this->recInfoText.GetMap().begin(), this->recInfoText.GetMap().end(),
+				if( std::any_of(activeRecPaths.begin(), activeRecPaths.end(), [&](const wstring& activePath) {
+				        return UtilComparePath(activePath.c_str(), delPath.c_str()) == 0; }) ){
+					AddDebugLogFormat(L"★No Delete(Recording) : %ls", delPath.c_str());
+				}else if( this->recInfoText.GetMap().end() != std::find_if(this->recInfoText.GetMap().begin(), this->recInfoText.GetMap().end(),
 				        [&](const pair<DWORD, REC_FILE_INFO_BASIC>& a) {
 				            return a.second.protectFlag && UtilComparePath(a.second.recFilePath.c_str(), delPath.c_str()) == 0; }) ){
 					//プロテクトされた録画済みファイルは消さない
 					AddDebugLogFormat(L"★No Delete(Protected) : %ls", delPath.c_str());
 				}else{
-					DeleteFile(delPath.c_str());
-					needFreeSize -= jtr->first.fileSize;
-					AddDebugLogFormat(L"★Auto Delete2 : %ls", delPath.c_str());
-					for( const wstring& ext : this->setting.delExtList ){
-						DeleteFile(fs_path(delPath).replace_extension(ext).c_str());
-						AddDebugLogFormat(L"★Auto Delete2 : %ls", fs_path(delPath).replace_extension(ext).c_str());
+#ifndef _WIN32
+					//サブ録画など、チューナーが把握していない書き込み中のファイルもロックで除外する。
+					std::unique_ptr<FILE, fclose_deleter> candidate(UtilOpenFile(delPath, UTIL_O_RDONLY | UTIL_F_REGULAR));
+					if( !candidate ){
+						AddDebugLogFormat(L"★No Delete(Cannot Lock) : %ls", delPath.c_str());
+						findList.erase(jtr);
+						continue;
+					}
+#endif
+					if( DeleteFile(delPath.c_str()) ){
+						needFreeSize -= jtr->first.fileSize;
+						AddDebugLogFormat(L"★Auto Delete2 : %ls", delPath.c_str());
+						for( const wstring& ext : this->setting.delExtList ){
+							fs_path sidecar = fs_path(delPath).replace_extension(ext);
+							if( DeleteFile(sidecar.c_str()) ){
+								AddDebugLogFormat(L"★Auto Delete2 : %ls", sidecar.c_str());
+							}
+						}
+					}else{
+						AddDebugLogFormat(L"★No Delete(Failed) : %ls", delPath.c_str());
 					}
 				}
 				findList.erase(jtr);

@@ -322,9 +322,15 @@ FILE* UtilOpenFile(const wstring& path, int flags, int* apiError)
 		int fd = open(strPath.c_str(), ((flags & 3) == 3 ? O_RDWR : (flags & 2) ? O_WRONLY : O_RDONLY) |
 		                               ((flags & 24) ? O_CREAT : 0) |
 		                               ((flags & 24) == 24 ? O_EXCL : 0) |
-		                               ((flags & 4) ? O_APPEND : 0) | O_CLOEXEC,
+		                               ((flags & 4) ? O_APPEND : 0) |
+		                               ((flags & UTIL_F_REGULAR) ? O_NONBLOCK : 0) | O_CLOEXEC,
 		              S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
 		if( fd >= 0 ){
+			struct stat st;
+			if( (flags & UTIL_F_REGULAR) && (fstat(fd, &st) != 0 || S_ISREG(st.st_mode) == false) ){
+				close(fd);
+				return nullptr;
+			}
 			// flock()は勧告ロックに過ぎないので注意
 			// UTIL_SHARED_READは無ロック相当で、既にかかっている排他ロックを無視するので注意
 			// UTIL_SH_READは非書き込み時のみ共有ロックとする

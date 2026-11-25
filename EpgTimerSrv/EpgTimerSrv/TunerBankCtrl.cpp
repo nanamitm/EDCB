@@ -1104,6 +1104,19 @@ bool CTunerBankCtrl::GetRecFilePath(DWORD reserveID, wstring& filePath) const
 	return false;
 }
 
+void CTunerBankCtrl::GetActiveRecFilePaths(vector<wstring>& paths) const
+{
+	for( const auto& item : this->reserveMap ){
+		if( item.second.state == TR_REC ){
+			for( const wstring& path : item.second.recFilePath ){
+				if( path.empty() == false ){
+					paths.push_back(path);
+				}
+			}
+		}
+	}
+}
+
 bool CTunerBankCtrl::OpenTuner(bool minWake, bool noView, bool nwUdp, bool nwTcp, bool standbyRec, const SET_CH_INFO* initCh)
 {
 	if( this->tunerPid ){

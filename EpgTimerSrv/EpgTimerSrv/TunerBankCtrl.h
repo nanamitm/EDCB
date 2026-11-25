@@ -130,6 +130,8 @@ public:
 	void CloseNWTV();
 	//予約が録画中であればその録画ファイル名を取得する
 	bool GetRecFilePath(DWORD reserveID, wstring& filePath) const;
+	//録画中の主・部分受信のファイルパスを追加する
+	void GetActiveRecFilePaths(vector<wstring>& paths) const;
 	//予約情報をもとにファイル名を生成する
 	static wstring ConvertRecName(
 		LPCWSTR recNamePlugIn, const SYSTEMTIME& startTime, DWORD durationSec, LPCWSTR eventName, WORD onid, WORD tsid, WORD sid, WORD eid,
