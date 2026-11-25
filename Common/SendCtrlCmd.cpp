@@ -117,6 +117,28 @@ void CSendCtrlCmd::SetConnectTimeOut(
 
 namespace
 {
+//応答のデータサイズの上限。番組情報の一括取得などに備えて要求側(CCmdStream::MAX_REQUEST_DATA_SIZE)より大きくする
+const DWORD MAX_RESPONSE_DATA_SIZE = 1024 * 1024 * 1024;
+
+//受信したヘッダから応答の領域を確保する。不正なサイズや確保できないときはfalse
+bool PrepareResponse(const BYTE (&head)[8], CCmdStream* res)
+{
+	DWORD dataSize = head[4] | head[5] << 8 | head[6] << 16 | (DWORD)head[7] << 24;
+	if( dataSize > MAX_RESPONSE_DATA_SIZE ){
+		AddDebugLogFormat(L"CSendCtrlCmd: Deny response size:%u", dataSize);
+		return false;
+	}
+	res->SetParam(head[0] | head[1] << 8 | head[2] << 16 | (DWORD)head[3] << 24);
+	try{
+		res->Resize(dataSize);
+	}catch( std::exception& ){
+		//呼び出し元のスレッドを例外で終わらせない
+		AddDebugLogFormat(L"CSendCtrlCmd: Cannot allocate response size:%u", dataSize);
+		return false;
+	}
+	return true;
+}
+
 DWORD SendPipe(const wstring& pipeName, DWORD timeOut, const CCmdStream& cmd, CCmdStream* res)
 {
 #ifdef _WIN32
@@ -195,12 +217,10 @@ DWORD SendPipe(const wstring& pipeName, DWORD timeOut, const CCmdStream& cmd, CC
 #else
 	for( int m; n < sizeof(head) && (m = (int)recv(sock, head + n, sizeof(head) - n, 0)) > 0; n += m );
 #endif
-	if( n != sizeof(head) ){
+	if( n != sizeof(head) || PrepareResponse(head, res) == false ){
 		closeFile();
 		return CMD_ERR;
 	}
-	res->SetParam(head[0] | head[1] << 8 | head[2] << 16 | (DWORD)head[3] << 24);
-	res->Resize(head[4] | head[5] << 8 | head[6] << 16 | (DWORD)head[7] << 24);
 	n = 0;
 #ifdef _WIN32
 	for( DWORD m; n < res->GetDataSize() && ReadFile(pipe, res->GetData() + n, res->GetDataSize() - n, &m, nullptr); n += m );
@@ -282,12 +302,10 @@ DWORD SendTCP(const wstring& ip, DWORD port, DWORD timeOut, const CCmdStream& cm
 	}
 	//受信
 	BYTE head[8];
-	if( RecvAll(sock, (char*)head, sizeof(head), 0) != (int)sizeof(head) ){
+	if( RecvAll(sock, (char*)head, sizeof(head), 0) != (int)sizeof(head) || PrepareResponse(head, res) == false ){
 		closesocket(sock);
 		return CMD_ERR;
 	}
-	res->SetParam(head[0] | head[1] << 8 | head[2] << 16 | (DWORD)head[3] << 24);
-	res->Resize(head[4] | head[5] << 8 | head[6] << 16 | (DWORD)head[7] << 24);
 	if( RecvAll(sock, (char*)res->GetData(), res->GetDataSize(), 0) != (int)res->GetDataSize() ){
 		closesocket(sock);
 		return CMD_ERR;
