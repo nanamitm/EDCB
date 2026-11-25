@@ -10,6 +10,12 @@
 #include <sys/stat.h>
 #endif
 
+namespace
+{
+//レート調整の待ち時間の上限。読み込み単位(188*256バイト)の再生時間より十分に長くする
+const LONGLONG MAX_RATE_WAIT_MSEC = 10000;
+}
+
 CTimeShiftUtil::CTimeShiftUtil(void)
 	: udpMutex(UtilCreateGlobalMutex())
 	, tcpMutex(UtilCreateGlobalMutex())
@@ -178,6 +184,12 @@ void CTimeShiftUtil::ReadThread(CTimeShiftUtil* sys)
 				//レート調整
 				wait = ((base + 0x200000000LL - initTime) & 0x1FFFFFFFFLL) / 90 - (GetU32Tick() - initTick);
 				base = -1;
+				if( wait > MAX_RATE_WAIT_MSEC ){
+					//PCRが不連続(逆戻りや大きな飛び)になったので、基準を取り直す
+					//通常の待ち時間は読み込み単位の再生時間程度なので、これを超えることはない
+					initTime = -1;
+					wait = 0;
+				}
 			}else if( errCount > 0 ){
 				//終端監視中
 				wait = 200;
@@ -377,5 +389,6 @@ void CTimeShiftUtil::SetFilePos(LONGLONG filePos)
 	lock_recursive_mutex lock(this->utilLock);
 	lock_recursive_mutex lock2(this->ioLock);
 
-	this->currentFilePos = filePos;
+	//負の位置ではシークに失敗して送信が止まってしまう
+	this->currentFilePos = max(filePos, 0LL);
 }

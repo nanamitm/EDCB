@@ -354,8 +354,9 @@ void CSendTSTCPMain::SendThread(CSendTSTCPMain* pSys)
 						if( itr->olEvent[i] ){
 							wstring strPipe;
 							Format(strPipe, SEND_TS_TCP_0001_PIPE_NAME, itr->port, GetCurrentProcessId());
+							//ネットワーク(SMB)経由の接続は拒否する
 							itr->pipe[i] = CreateNamedPipe(strPipe.c_str(), PIPE_ACCESS_OUTBOUND | FILE_FLAG_OVERLAPPED,
-							                               0, (DWORD)array_size(itr->pipe), 48128, 0, 0, nullptr);
+							                               PIPE_REJECT_REMOTE_CLIENTS, (DWORD)array_size(itr->pipe), 48128, 0, 0, nullptr);
 							if( itr->pipe[i] != INVALID_HANDLE_VALUE ){
 								OVERLAPPED olZero = {};
 								itr->ol[i] = olZero;

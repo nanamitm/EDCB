@@ -246,7 +246,7 @@ void CWriteMain::TeeThread(CWriteMain* sys)
 		sa.bInheritHandle = TRUE;
 
 		//出力を速やかに打ち切るために非同期書き込みのパイプを作成する。CreatePipe()は非同期にできない
-		HANDLE readPipe = CreateNamedPipe(pipeName, PIPE_ACCESS_INBOUND, 0, 1, 8192, 8192, 0, &sa);
+		HANDLE readPipe = CreateNamedPipe(pipeName, PIPE_ACCESS_INBOUND, PIPE_REJECT_REMOTE_CLIENTS, 1, 8192, 8192, 0, &sa);
 		if( readPipe != INVALID_HANDLE_VALUE ){
 			HANDLE writePipe = CreateFile(pipeName, GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, nullptr);
 			if( writePipe != INVALID_HANDLE_VALUE ){
