@@ -66,6 +66,18 @@ namespace EpgTimer
             item.durationSecond = ((uint)(comboBox_endHH.SelectedIndex * 60 * 60 + comboBox_endMM.SelectedIndex * 60 + comboBox_endSS.SelectedIndex) +
                                    24 * 60 * 60 - item.startTime) % (24 * 60 * 60);
 
+            // 曜日なしでは一度も予約されず、長さ0では録画されないルールになるので登録しない
+            if (item.dayOfWeekFlag == 0)
+            {
+                MessageBox.Show("曜日が選択されていません");
+                return;
+            }
+            if (item.durationSecond == 0)
+            {
+                MessageBox.Show("開始時刻と終了時刻が同じです");
+                return;
+            }
+
             item.title = textBox_title.Text;
 
             ChSet5Item chItem = comboBox_service.SelectedItem as ChSet5Item;

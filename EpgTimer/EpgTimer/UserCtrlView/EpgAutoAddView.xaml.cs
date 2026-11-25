@@ -145,7 +145,8 @@ namespace EpgTimer
             }
 
             string text = "予約項目ごと削除してよろしいですか?\r\n"
-                        + "(無効の「自動予約登録項目」による予約も削除されます。)";
+                        + "(無効の「自動予約登録項目」による予約も削除されます。\r\n"
+                        + "手動で追加した予約は削除されません。)";
             if (MessageBox.Show(text, "[予約ごと削除]の確認", MessageBoxButton.OKCancel,
                 MessageBoxImage.Question, MessageBoxResult.OK) != MessageBoxResult.OK)
             {
@@ -191,8 +192,10 @@ namespace EpgTimer
                         MessageBox.Show(failure + "\r\n" + CommonManager.GetErrCodeText(err));
                         return;
                     }
+                    // 番組表などから手動で入れた同じ番組の予約は消さない(自動予約で作られた予約だけを対象にする)
                     reserveIds = reserves
-                        .Where(info => eventKeys.Contains(CommonManager.Create64PgKey(info.OriginalNetworkID,
+                        .Where(info => info.Comment.StartsWith("EPG自動予約", StringComparison.Ordinal) &&
+                                       eventKeys.Contains(CommonManager.Create64PgKey(info.OriginalNetworkID,
                             info.TransportStreamID, info.ServiceID, info.EventID)))
                         .Select(info => info.ReserveID).ToList();
                 }
