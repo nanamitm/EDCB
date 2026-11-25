@@ -2169,7 +2169,8 @@ bool CReserveManager::ChgAutoAddNoRec(WORD onid, WORD tsid, WORD sid, WORD eid, 
 				(chgList.back().recSetting.GetRecMode() + REC_SETTING_DATA::DIV_RECMODE - 1) % REC_SETTING_DATA::DIV_RECMODE;
 		}
 	}
-	return chgList.empty() == false && ChgReserveData(chgList);
+	//録画済みの重複録画を防ぐ自動処理なので、保存できなくてもメモリ上には反映する
+	return chgList.empty() == false && ChgReserveData(chgList, false, true);
 }
 
 bool CReserveManager::GetChData(WORD onid, WORD tsid, WORD sid, CH_DATA5* chData) const
