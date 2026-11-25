@@ -250,6 +250,8 @@ void CBonCtrl::RecvCallback(BYTE* data, DWORD size, DWORD remain, DWORD tsBuffMa
 			if( this->tsFreeList.empty() ){
 				//バッファを増やす
 				if( this->tsBuffList.size() > tsBuffMaxCount ){
+					//解析が追いつかないので蓄積分を捨てる。書き込み側のMaxOverと区別できるようにログに残す
+					AddDebugLog(L"★tsBuffList MaxOver");
 					for( auto itr = this->tsBuffList.begin(); itr != this->tsBuffList.end(); (itr++)->clear() );
 					this->tsFreeList.splice(this->tsFreeList.end(), this->tsBuffList);
 				}else{
