@@ -81,7 +81,10 @@ bool CPipeServer::StartServer(
 				writeDac = WRITE_DAC;
 			}
 			wstring pipePath = (L"\\\\.\\pipe\\" + pipeName).replace(9 + pipeName.find(L"Pipe"), 0, i == 0 ? L"" : L"NoWait");
-			this->hPipes[i] = CreateNamedPipe(pipePath.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | writeDac, 0, 1, 8192, 8192, PIPE_TIMEOUT, nullptr);
+			//ネットワーク(SMB)経由の接続は拒否する。サービスモードでは認証済みユーザーに読み書きを許可するので、
+			//これがないとTCPのアクセス制御を経ずに他のPCから操作できてしまう
+			this->hPipes[i] = CreateNamedPipe(pipePath.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | writeDac,
+			                                  PIPE_REJECT_REMOTE_CLIENTS, 1, 8192, 8192, PIPE_TIMEOUT, nullptr);
 			if( this->hPipes[i] != INVALID_HANDLE_VALUE ){
 				if( insecureFlag ){
 					if( writeDac && cbTrusteeSid && GrantAccessToKernelObject(this->hPipes[i], (WCHAR*)&trusteeSid, true, GENERIC_READ | GENERIC_WRITE) ){

@@ -51,10 +51,19 @@ vector<SSDP_NIC_INFO> GetNICList()
 	vector<SSDP_NIC_INFO> nicList;
 #ifdef _WIN32
 	//MSDN: "The recommended method ~ is to pre-allocate a 15KB working buffer pointed to by the AdapterAddresses parameter."
-	IP_ADAPTER_ADDRESSES adpts[16384 / sizeof(IP_ADAPTER_ADDRESSES)];
-	ULONG len = sizeof(adpts);
-	if( GetAdaptersAddresses(AF_INET, 0, 0, adpts, &len) == ERROR_SUCCESS ){
-		for( PIP_ADAPTER_ADDRESSES adpt = adpts; adpt; adpt = adpt->Next ){
+	//アダプタが多い環境では足りないので、必要なサイズが返されたら確保し直す(その間に増える場合に備えて数回まで)
+	vector<IP_ADAPTER_ADDRESSES> adpts(16384 / sizeof(IP_ADAPTER_ADDRESSES));
+	ULONG len = (ULONG)(adpts.size() * sizeof(IP_ADAPTER_ADDRESSES));
+	ULONG ret = GetAdaptersAddresses(AF_INET, 0, 0, adpts.data(), &len);
+	for( int retry = 0; ret == ERROR_BUFFER_OVERFLOW && retry < 3; retry++ ){
+		adpts.resize(len / sizeof(IP_ADAPTER_ADDRESSES) + 1);
+		len = (ULONG)(adpts.size() * sizeof(IP_ADAPTER_ADDRESSES));
+		ret = GetAdaptersAddresses(AF_INET, 0, 0, adpts.data(), &len);
+	}
+	if( ret != ERROR_SUCCESS ){
+		AddDebugLogFormat(L"SSDP GetAdaptersAddresses() failed: %u", (DWORD)ret);
+	}else{
+		for( PIP_ADAPTER_ADDRESSES adpt = adpts.data(); adpt; adpt = adpt->Next ){
 			for( PIP_ADAPTER_UNICAST_ADDRESS uni = adpt->FirstUnicastAddress; uni; uni = uni->Next ){
 				char host[NI_MAXHOST];
 				if( (uni->Flags & IP_ADAPTER_ADDRESS_TRANSIENT) == 0 &&
@@ -72,7 +81,8 @@ vector<SSDP_NIC_INFO> GetNICList()
 	if( getifaddrs(&ifap) == 0 ){
 		for( ifaddrs* p = ifap; p; p = p->ifa_next ){
 			char host[NI_MAXHOST];
-			if( p->ifa_addr->sa_family == AF_INET &&
+			//アドレスを持たないインタフェース(tunなど)ではifa_addrがnullptrになる
+			if( p->ifa_addr && p->ifa_addr->sa_family == AF_INET &&
 			    getnameinfo(p->ifa_addr, sizeof(sockaddr_in), host, sizeof(host), nullptr, 0, NI_NUMERICHOST) == 0 ){
 				nicList.emplace_back();
 				nicList.back().addr = *(sockaddr_in*)p->ifa_addr;
