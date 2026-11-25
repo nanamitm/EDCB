@@ -889,7 +889,7 @@ namespace EpgTimer
                             return;
                         }
                     }
-                    CommonManager.CreateSrvCtrl().SendSuspend(0xFF02);
+                    SendSuspendRequest(0xFF02);
                 }
                 else
                 {
@@ -897,21 +897,36 @@ namespace EpgTimer
                     {
                         if (CommonManager.Instance.NWConnectedIP != null)
                         {
-                            if (Settings.Instance.NWWaitPort != 0)
+                            //要求が受け付けられたときだけ接続を閉じる
+                            if (SendSuspendRequest(0xFF02))
                             {
-                                CommonManager.CreateSrvCtrl().SendUnRegistTCP(Settings.Instance.NWWaitPort);
+                                if (Settings.Instance.NWWaitPort != 0)
+                                {
+                                    CommonManager.CreateSrvCtrl().SendUnRegistTCP(Settings.Instance.NWWaitPort);
+                                }
+                                CommonManager.Instance.NWConnectedIP = null;
+                                CloseCmd();
                             }
-                            CommonManager.CreateSrvCtrl().SendSuspend(0xFF02);
-                            CommonManager.Instance.NWConnectedIP = null;
-                            CloseCmd();
                         }
                     }
                     else
                     {
-                        CommonManager.CreateSrvCtrl().SendSuspend(0xFF02);
+                        SendSuspendRequest(0xFF02);
                     }
                 }
             }
+        }
+
+        /// <summary>スリープの要求を送り、受け付けられなかったときは知らせる</summary>
+        private bool SendSuspendRequest(ushort param)
+        {
+            ErrCode err = CommonManager.CreateSrvCtrl().SendSuspend(param);
+            if (err != ErrCode.CMD_SUCCESS)
+            {
+                MessageBox.Show("スリープの要求に失敗しました。\r\n" + (CommonManager.GetErrCodeText(err) ?? "スリープできる状態ではありません。"));
+                return false;
+            }
+            return true;
         }
 
         void standbyButton_Click(object sender, RoutedEventArgs e)
@@ -939,7 +954,7 @@ namespace EpgTimer
                             return;
                         }
                     }
-                    CommonManager.CreateSrvCtrl().SendSuspend(0xFF01);
+                    SendSuspendRequest(0xFF01);
                 }
                 else
                 {
@@ -947,18 +962,21 @@ namespace EpgTimer
                     {
                         if (CommonManager.Instance.NWConnectedIP != null)
                         {
-                            if (Settings.Instance.NWWaitPort != 0)
+                            //要求が受け付けられたときだけ接続を閉じる
+                            if (SendSuspendRequest(0xFF01))
                             {
-                                CommonManager.CreateSrvCtrl().SendUnRegistTCP(Settings.Instance.NWWaitPort);
+                                if (Settings.Instance.NWWaitPort != 0)
+                                {
+                                    CommonManager.CreateSrvCtrl().SendUnRegistTCP(Settings.Instance.NWWaitPort);
+                                }
+                                CommonManager.Instance.NWConnectedIP = null;
+                                CloseCmd();
                             }
-                            CommonManager.CreateSrvCtrl().SendSuspend(0xFF01);
-                            CommonManager.Instance.NWConnectedIP = null;
-                            CloseCmd();
                         }
                     }
                     else
                     {
-                        CommonManager.CreateSrvCtrl().SendSuspend(0xFF01);
+                        SendSuspendRequest(0xFF01);
                     }
                 }
             }
@@ -1157,7 +1175,7 @@ namespace EpgTimer
                 dlg.SetMode(0, suspendMode);
                 if (dlg.ShowDialog() == true)
                 {
-                    CommonManager.CreateSrvCtrl().SendSuspend(param);
+                    SendSuspendRequest(param);
                 }
             }
         }
