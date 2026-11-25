@@ -341,11 +341,18 @@ namespace EpgTimer
                 }
                 try
                 {
-                    CommonManager.CreateSrvCtrl().SendDelRecInfo(new List<uint>() { recInfo.ID });
+                    ErrCode err = CommonManager.CreateSrvCtrl().SendDelRecInfo(new List<uint>() { recInfo.ID });
+                    if (err != ErrCode.CMD_SUCCESS)
+                    {
+                        //削除できなかったので画面は閉じない
+                        MessageBox.Show("録画済み情報の削除に失敗しました。\r\n" + CommonManager.GetErrCodeText(err));
+                        return;
+                    }
                 }
                 catch (Exception ex)
                 {
                     MessageBox.Show(ex.ToString());
+                    return;
                 }
             }
             Close();

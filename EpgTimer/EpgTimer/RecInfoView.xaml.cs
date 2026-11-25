@@ -99,7 +99,11 @@ namespace EpgTimer
                     {
                         IDList.Add(info.RecInfo.ID);
                     }
-                    CommonManager.CreateSrvCtrl().SendDelRecInfo(IDList);
+                    ErrCode err = CommonManager.CreateSrvCtrl().SendDelRecInfo(IDList);
+                    if (err != ErrCode.CMD_SUCCESS)
+                    {
+                        MessageBox.Show("録画済み情報の削除に失敗しました。\r\n" + CommonManager.GetErrCodeText(err));
+                    }
                 }
             }
             catch (Exception ex)

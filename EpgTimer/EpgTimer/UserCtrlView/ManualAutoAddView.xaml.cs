@@ -119,7 +119,18 @@ namespace EpgTimer
                 {
                     dataIDList.Add(info.ManualAutoAddInfo.dataID);
                 }
-                CommonManager.CreateSrvCtrl().SendDelManualAdd(dataIDList);
+                try
+                {
+                    ErrCode err = CommonManager.CreateSrvCtrl().SendDelManualAdd(dataIDList);
+                    if (err != ErrCode.CMD_SUCCESS)
+                    {
+                        MessageBox.Show("プログラム自動予約の削除に失敗しました。\r\n" + CommonManager.GetErrCodeText(err));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("プログラム自動予約の削除に失敗しました。\r\n" + ex.Message);
+                }
             }
         }
 
