@@ -52,11 +52,12 @@ bool CWriteTSFile::StartSave(
 		this->maxBuffCount = maxBuffCount_;
 		this->writeTotalSize = 0;
 		this->subRecFlag = false;
+		this->writeFailed = false;
 		this->saveFolderSub = saveFolderSub_;
 		for( size_t i=0; i<saveFolder.size(); i++ ){
 			this->fileList.emplace_back(new SAVE_INFO);
 			SAVE_INFO& item = *this->fileList.back();
-			item.freeChk = false;
+			item.primary = false;
 			item.writePlugIn = saveFolder[i].writePlugIn;
 			if( item.writePlugIn.size() == 0 ){
 				item.writePlugIn = L"Write_Default" EDCB_LIB_EXT;
@@ -102,7 +103,7 @@ bool CWriteTSFile::EndSave(bool* subRecFlag_)
 		}
 		this->tsBuffList.clear();
 		this->tsFreeList.clear();
-		return true;
+		return this->writeFailed == false;
 	}
 	return false;
 }
@@ -129,6 +130,7 @@ bool CWriteTSFile::AddTSBuff(
 				//バッファを増やす
 				if( this->maxBuffCount > 0 && this->tsBuffList.size() > (size_t)this->maxBuffCount ){
 					AddDebugLog(L"★writeBuffList MaxOver");
+					this->writeFailed = true;
 					for( auto itr = this->tsBuffList.begin(); itr != this->tsBuffList.end(); (itr++)->clear() );
 					this->tsFreeList.splice(this->tsFreeList.end(), this->tsBuffList);
 				}else{
@@ -146,6 +148,61 @@ bool CWriteTSFile::AddTSBuff(
 		}
 	}
 	return true;
+}
+
+bool CWriteTSFile::SwitchOutput(SAVE_INFO& output)
+{
+	for( const wstring& folder : this->saveFolderSub ){
+		if( std::any_of(output.triedFolders.begin(), output.triedFolders.end(), [&](const wstring& used) {
+		        return UtilComparePath(used.c_str(), folder.c_str()) == 0; }) ||
+		    UtilGetStorageFreeBytes(folder) <= FREE_FOLDER_MIN_BYTES ){
+			continue;
+		}
+		output.triedFolders.push_back(folder);
+		//別名のフォルダが同じ場所を指していても、保存済みのファイルを上書きしない。
+		if( output.writeUtil.Start(fs_path(folder).append(output.recFileName).c_str(), false, 0) ){
+			this->subRecFlag = true;
+			return true;
+		}
+	}
+	return false;
+}
+
+void CWriteTSFile::WriteOutputBlock(vector<BYTE>& block)
+{
+	for( auto& output : this->fileList ){
+		DWORD offset = 0;
+		while( output && offset < block.size() ){
+			DWORD remaining = (DWORD)block.size() - offset;
+			DWORD written = 0;
+			bool success = output->writeUtil.Write(block.data() + offset, remaining, &written);
+			if( written > remaining ){
+				//プラグインからの不正な書き込みサイズでバッファの範囲外を参照しない。
+				output->writeUtil.Stop();
+				output.reset();
+				this->writeFailed = true;
+				break;
+			}
+			offset += written;
+			if( output->primary ){
+				lock_recursive_mutex lock(this->outThreadLock);
+				if( this->writeTotalSize >= 0 ){
+					this->writeTotalSize += written;
+					if( success == false || written == 0 ){
+						//以後のデータは別ファイルに書かれる。元ファイルのサイズは加算しない。
+						this->writeTotalSize = -(this->writeTotalSize + 1);
+					}
+				}
+			}
+			if( success == false || written == 0 ){
+				output->writeUtil.Stop();
+				if( output->primary == false || SwitchOutput(*output) == false ){
+					output.reset();
+					this->writeFailed = true;
+				}
+			}
+		}
+	}
 }
 
 void CWriteTSFile::OutThread(CWriteTSFile* sys)
@@ -193,7 +250,8 @@ void CWriteTSFile::OutThread(CWriteTSFile* sys)
 						                               UtilGetStorageFreeBytes(a) > (LONGLONG)sys->createSize + FREE_FOLDER_MIN_BYTES; });
 					if( itrFree != sys->saveFolderSub.end() ){
 						sys->subRecFlag = true;
-						startRes = sys->fileList[i]->writeUtil.Start(fs_path(*itrFree).append(sys->fileList[i]->recFileName).c_str(),
+						recFolder = *itrFree;
+						startRes = sys->fileList[i]->writeUtil.Start(fs_path(recFolder).append(sys->fileList[i]->recFileName).c_str(),
 						                                             sys->overWriteFlag, sys->createSize);
 					}
 				}
@@ -201,7 +259,9 @@ void CWriteTSFile::OutThread(CWriteTSFile* sys)
 			if( startRes == false ){
 				sys->fileList[i].reset();
 			}else{
-				if( i == 0 ){
+				sys->fileList[i]->primary = emptyFlag;
+				sys->fileList[i]->triedFolders.push_back(recFolder.native());
+				if( emptyFlag ){
 					DWORD saveFilePathSize = 0;
 					if( sys->fileList[i]->writeUtil.GetSavePath(nullptr, &saveFilePathSize) && saveFilePathSize > 0 ){
 						vector<WCHAR> saveFilePath(saveFilePathSize);
@@ -210,7 +270,6 @@ void CWriteTSFile::OutThread(CWriteTSFile* sys)
 						}
 					}
 				}
-				sys->fileList[i]->freeChk = emptyFlag;
 				emptyFlag = false;
 			}
 		}
@@ -244,83 +303,32 @@ void CWriteTSFile::OutThread(CWriteTSFile* sys)
 		}
 
 		if( data.empty() == false ){
-			DWORD dataSize = (DWORD)data.front().size();
-			for( size_t i=0; i<sys->fileList.size(); i++ ){
-				{
-					if( sys->fileList[i] ){
-						DWORD write = 0;
-						if( sys->fileList[i]->writeUtil.Write(data.front().data(), dataSize, &write) == false ){
-							//空きがなくなった
-							if( i == 0 ){
-								lock_recursive_mutex lock(sys->outThreadLock);
-								if( sys->writeTotalSize >= 0 ){
-									//出力サイズの加算を停止する
-									sys->writeTotalSize = -(sys->writeTotalSize + 1);
-								}
-							}
-							sys->fileList[i]->writeUtil.Stop();
-
-							if( sys->fileList[i]->freeChk ){
-								//次の空きを探す
-								vector<wstring>::iterator itrFree = std::find_if(sys->saveFolderSub.begin(), sys->saveFolderSub.end(),
-									[](const wstring& a) { return UtilGetStorageFreeBytes(a) > FREE_FOLDER_MIN_BYTES; });
-								if( itrFree != sys->saveFolderSub.end() ){
-									//開始
-									if( sys->fileList[i]->writeUtil.Start(fs_path(*itrFree).append(sys->fileList[i]->recFileName).c_str(),
-									                                      sys->overWriteFlag, 0) == false ){
-										//失敗したので終わり
-										sys->fileList[i].reset();
-									}else{
-										sys->subRecFlag = true;
-
-										if( dataSize > write ){
-											sys->fileList[i]->writeUtil.Write(data.front().data()+write, dataSize-write, &write);
-										}
-									}
-								}
-							}else{
-								//失敗したので終わり
-								sys->fileList[i].reset();
-							}
-						}else{
-							//原作では成否にかかわらずwriteTotalSizeにdataSizeを加算しているが
-							//出力サイズの利用ケース的にはmainSaveFilePathと一致させないとおかしいと思うので、そのように変更した
-							if( i == 0 ){
-								lock_recursive_mutex lock(sys->outThreadLock);
-								if( sys->writeTotalSize >= 0 ){
-									sys->writeTotalSize += dataSize;
-								}
-							}
-						}
-					}
-				}
-			}
+			sys->WriteOutputBlock(data.front());
 		}else{
 			//TODO: 厳密にはメッセージをディスパッチすべき(スレッド内で単純なCOMオブジェクトを扱う限りは(多分)問題ない)
 			sys->outStopEvent.WaitOne(100);
 		}
 	}
 
-	//残っているバッファを書き出し
+	//停止時のデータも通常の書き込みと同じように、部分書き込みや代替先への切り替えを処理する。
+	std::list<vector<BYTE>> tail;
 	{
 		lock_recursive_mutex lock(sys->outThreadLock);
 		if( sys->tsFreeList.empty() == false && sys->tsFreeList.front().empty() == false ){
 			sys->tsBuffList.splice(sys->tsBuffList.end(), sys->tsFreeList, sys->tsFreeList.begin());
 		}
-		while( sys->tsBuffList.empty() == false ){
-			for( size_t i=0; i<sys->fileList.size(); i++ ){
-				if( sys->fileList[i] ){
-					DWORD write = 0;
-					sys->fileList[i]->writeUtil.Write(sys->tsBuffList.front().data(), (DWORD)sys->tsBuffList.front().size(), &write);
-				}
-			}
-			sys->tsBuffList.pop_front();
-		}
+		tail.splice(tail.end(), sys->tsBuffList);
 	}
-	for( size_t i=0; i<sys->fileList.size(); i++ ){
-		if( sys->fileList[i] ){
-			sys->fileList[i]->writeUtil.Stop();
-			sys->fileList[i].reset();
+	for( auto& remaining : tail ){
+		sys->WriteOutputBlock(remaining);
+	}
+	for( auto& output : sys->fileList ){
+		if( output ){
+			if( output->writeUtil.Stop() == false ){
+				sys->writeFailed = true;
+				AddDebugLog(L"★Cannot finish writing recording");
+			}
+			output.reset();
 		}
 	}
 
