@@ -182,6 +182,9 @@ private:
 	DWORD compatFlags;
 
 #ifdef _WIN32
+	//しょぼいカレンダーへの送信用
+	std::thread syoboiThread;
+	std::atomic_bool syoboiThreadDone;
 	std::thread doLuaWorkerThread;
 	std::recursive_mutex doLuaWorkerLock;
 	vector<string> doLuaScriptQueue;

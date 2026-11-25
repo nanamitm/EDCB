@@ -970,6 +970,17 @@ bool CEpgDBManager::InitializeSearchContext(SEARCH_CONTEXT& ctx, vector<LONGLONG
 	return true;
 }
 
+#if !defined(EPGDB_STD_WREGEX) && defined(_WIN32)
+void CEpgDBManager::ReportRegExpUnavailable()
+{
+	//VBScriptが無効化・削除された環境ではRegExpを作成できず、正規表現を使う検索は常に一致しなくなる
+	static std::atomic_bool reported(false);
+	if( reported.exchange(true) == false ){
+		AddDebugLog(L"★CEpgDBManager: RegExp (VBScript) is unavailable. Regular expression search never matches.");
+	}
+}
+#endif
+
 bool CEpgDBManager::IsMatchEvent(SEARCH_CONTEXT* ctxs, size_t ctxsSize, const EPGDB_EVENT_INFO* itrEvent, wstring* findKey)
 {
 	for( size_t i = 0; i < ctxsSize; i++ ){
@@ -1371,6 +1382,8 @@ void CEpgDBManager::AddKeyword(vector<pair<wstring, RegExpPtr>>& keyList, wstrin
 				return;
 			}
 			keyList.back().second.reset();
+		}else{
+			ReportRegExpUnavailable();
 		}
 #else
 		try{

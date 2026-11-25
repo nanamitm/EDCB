@@ -94,6 +94,8 @@ public:
 	static void ConvertSearchText(wstring& str);
 #if !defined(EPGDB_STD_WREGEX) && defined(_WIN32)
 	static void ComRelease(IUnknown* p) { p->Release(); }
+	//正規表現オブジェクトを作成できなかったことを(1回だけ)ログに残す
+	static void ReportRegExpUnavailable();
 
 	typedef std::unique_ptr<IRegExp, decltype(&ComRelease)> RegExpPtr;
 	typedef std::unique_ptr<OLECHAR, decltype(&SysFreeString)> OleCharPtr;

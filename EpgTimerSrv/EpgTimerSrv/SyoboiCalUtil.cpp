@@ -10,7 +10,8 @@
 #include "../../Common/TimeUtil.h"
 #include "../../Common/ParseTextInstances.h"
 
-#define SYOBOI_UP_URL L"http://cal.syoboi.jp/sch_upload"
+//Basic認証でアカウントのIDとパスワードを送るのでHTTPSを使う(HTTPでは平文で流れていた)
+#define SYOBOI_UP_URL L"https://cal.syoboi.jp/sch_upload"
 
 LONGLONG CSyoboiCalUtil::GetTimeStamp(SYSTEMTIME startTime)
 {

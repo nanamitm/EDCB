@@ -2206,6 +2206,10 @@ bool CReserveManager::IsFindRecEventInfo(const EPGDB_EVENT_INFO& info, WORD chkD
 		}
 	}
 #if !defined(EPGDB_STD_WREGEX) && defined(_WIN32)
+	else{
+		//録画済みチェックができない
+		CEpgDBManager::ReportRegExpUnavailable();
+	}
 	CoUninitialize();
 #endif
 

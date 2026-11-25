@@ -378,6 +378,10 @@ bool CEpgTimerSrvMain::OnMessage(CMessageManager::PARAMS& pa)
 		if( ctx->sys->doLuaWorkerThread.joinable() ){
 			ctx->sys->doLuaWorkerThread.join();
 		}
+		if( ctx->sys->syoboiThread.joinable() ){
+			//送信中なら通信のタイムアウトまで待つことがある
+			ctx->sys->syoboiThread.join();
+		}
 #else
 		ctx->sys->processLuaPostStopEvent.Set();
 		ctx->sys->processLuaPostThread.join();
@@ -689,10 +693,23 @@ bool CEpgTimerSrvMain::OnMessage(CMessageManager::PARAMS& pa)
 #ifdef _WIN32
 				if( ctx->sys->useSyoboi ){
 					//しょぼいカレンダー対応
-					CSyoboiCalUtil syoboi;
-					vector<RESERVE_DATA> reserveList = ctx->sys->reserveManager.GetReserveDataAll();
-					vector<TUNER_RESERVE_INFO> tunerList = ctx->sys->reserveManager.GetTunerReserveAll();
-					syoboi.SendReserve(&reserveList, &tunerList);
+					//通信は最大で約1分かかるので、予約の制御を止めないよう別スレッドで送る
+					CEpgTimerSrvMain* sys = ctx->sys;
+					if( sys->syoboiThread.joinable() && sys->syoboiThreadDone ){
+						sys->syoboiThread.join();
+					}
+					if( sys->syoboiThread.joinable() ){
+						AddDebugLog(L"★SyoboiCalUtil: Previous upload is still running");
+					}else{
+						vector<RESERVE_DATA> reserveList = sys->reserveManager.GetReserveDataAll();
+						vector<TUNER_RESERVE_INFO> tunerList = sys->reserveManager.GetTunerReserveAll();
+						sys->syoboiThreadDone = false;
+						sys->syoboiThread = std::thread([sys, reserveList = std::move(reserveList), tunerList = std::move(tunerList)]() {
+							CSyoboiCalUtil syoboi;
+							syoboi.SendReserve(&reserveList, &tunerList);
+							sys->syoboiThreadDone = true;
+						});
+					}
 				}
 #endif
 				AddDebugLogFormat(L"Done PostLoad EpgData %dmsec", GetU32Tick() - ctx->autoAddCheckTick);
