@@ -1078,6 +1078,8 @@ edcb.os.execute('echo %hoge% %fuga% & pause', true, {hoge='ほげ♪',fuga='ふ�
       {なにか短時間で終わる処理}
     until Sleep(0)
     ```
+  - `/luapost`で投入されたスクリプトの実行時：
+    バッチ実行時と同様に、EpgTimerSrvが終了しようとしているときはtrueで速やかに返る。
 
 `GetPrivateProfile( セクション:S, キー:S, 既定値:S|I|B, ファイル名:S ) → S`
 - Win32APIのGetPrivateProfileStringを呼ぶ  

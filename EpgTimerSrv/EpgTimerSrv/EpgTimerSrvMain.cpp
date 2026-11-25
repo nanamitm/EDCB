@@ -258,6 +258,15 @@ void CtrlCmdResponseThreadCallback(const CCmdStream& cmd, CCmdStream& res, CTCPS
 #endif
 }
 
+//自動予約設定を保存する。メモリ上の設定はすでに変更済みなので、失敗はログに残すだけにする
+template<class T>
+void SaveAutoAddText(const T& text, LPCWSTR name)
+{
+	if( text.SaveText() == false ){
+		AddDebugLogFormat(L"SaveAutoAddText(%ls): Cannot save auto-add settings", name);
+	}
+}
+
 }
 
 CEpgTimerSrvMain::CEpgTimerSrvMain()
@@ -360,6 +369,8 @@ bool CEpgTimerSrvMain::OnMessage(CMessageManager::PARAMS& pa)
 		AddDebugLogFormat(L"Received signal %d", (int)pa.param1);
 		break;
 	case CMessageManager::ID_DESTROY:
+		//実行中のLuaスクリプトのSleep()が速やかに返るよう、スクリプトの終了を待つ前にセットする
+		ctx->sys->stoppingFlag = true;
 #ifdef _WIN32
 		if( ctx->resumeTimer ){
 			CloseHandle(ctx->resumeTimer);
@@ -378,7 +389,6 @@ bool CEpgTimerSrvMain::OnMessage(CMessageManager::PARAMS& pa)
 		ctx->noWaitPipeServer.StopServer();
 #endif
 		ctx->pipeServer.StopServer();
-		ctx->sys->stoppingFlag = true;
 		ctx->sys->reserveManager.Finalize();
 		AddDebugLog(L"*** Server finalized ***");
 		//タスクトレイから削除
@@ -658,7 +668,7 @@ bool CEpgTimerSrvMain::OnMessage(CMessageManager::PARAMS& pa)
 						ctx->sys->AutoAddReserveProgram(item.second, ctx->autoAddCheckAddList);
 					}
 					if( ctx->autoAddCheckAddList.empty() == false ){
-						ctx->sys->reserveManager.AddReserveData(ctx->autoAddCheckAddList);
+						ctx->sys->reserveManager.AddReserveData(ctx->autoAddCheckAddList, false, true);
 					}
 					ctx->sys->autoAddCheckItr = ctx->sys->epgAutoAdd.GetMap().begin();
 				}
@@ -1887,8 +1897,8 @@ void CEpgTimerSrvMain::CtrlCmdCallback(CEpgTimerSrvMain* sys, const CCmdStream& 
 						sys->autoAddCheckItr = sys->epgAutoAdd.GetMap().begin();
 						sys->AutoAddReserveEPG(item, addList);
 					}
-					sys->epgAutoAdd.SaveText();
-					sys->reserveManager.AddReserveData(addList);
+					SaveAutoAddText(sys->epgAutoAdd, L"epgAutoAdd");
+					sys->reserveManager.AddReserveData(addList, false, true);
 				}
 				sys->notifyManager.AddNotify(NOTIFY_UPDATE_AUTOADD_EPG);
 				res.SetParam(CMD_SUCCESS);
@@ -1905,7 +1915,7 @@ void CEpgTimerSrvMain::CtrlCmdCallback(CEpgTimerSrvMain* sys, const CCmdStream& 
 						sys->autoAddCheckItr = sys->epgAutoAdd.GetMap().begin();
 					}
 				}
-				sys->epgAutoAdd.SaveText();
+				SaveAutoAddText(sys->epgAutoAdd, L"epgAutoAdd");
 				sys->notifyManager.AddNotify(NOTIFY_UPDATE_AUTOADD_EPG);
 				res.SetParam(CMD_SUCCESS);
 			}
@@ -1925,8 +1935,8 @@ void CEpgTimerSrvMain::CtrlCmdCallback(CEpgTimerSrvMain* sys, const CCmdStream& 
 							sys->AutoAddReserveEPG(item, addList);
 						}
 					}
-					sys->epgAutoAdd.SaveText();
-					sys->reserveManager.AddReserveData(addList);
+					SaveAutoAddText(sys->epgAutoAdd, L"epgAutoAdd");
+					sys->reserveManager.AddReserveData(addList, false, true);
 				}
 				sys->notifyManager.AddNotify(NOTIFY_UPDATE_AUTOADD_EPG);
 				res.SetParam(CMD_SUCCESS);
@@ -1959,8 +1969,8 @@ void CEpgTimerSrvMain::CtrlCmdCallback(CEpgTimerSrvMain* sys, const CCmdStream& 
 						item.dataID = sys->manualAutoAdd.AddData(item);
 						sys->AutoAddReserveProgram(item, addList);
 					}
-					sys->manualAutoAdd.SaveText();
-					sys->reserveManager.AddReserveData(addList);
+					SaveAutoAddText(sys->manualAutoAdd, L"manualAutoAdd");
+					sys->reserveManager.AddReserveData(addList, false, true);
 				}
 				sys->notifyManager.AddNotify(NOTIFY_UPDATE_AUTOADD_MANUAL);
 				res.SetParam(CMD_SUCCESS);
@@ -1975,7 +1985,7 @@ void CEpgTimerSrvMain::CtrlCmdCallback(CEpgTimerSrvMain* sys, const CCmdStream& 
 				for( DWORD id : val ){
 					sys->manualAutoAdd.DelData(id);
 				}
-				sys->manualAutoAdd.SaveText();
+				SaveAutoAddText(sys->manualAutoAdd, L"manualAutoAdd");
 				sys->notifyManager.AddNotify(NOTIFY_UPDATE_AUTOADD_MANUAL);
 				res.SetParam(CMD_SUCCESS);
 			}
@@ -1994,8 +2004,8 @@ void CEpgTimerSrvMain::CtrlCmdCallback(CEpgTimerSrvMain* sys, const CCmdStream& 
 							sys->AutoAddReserveProgram(item, addList);
 						}
 					}
-					sys->manualAutoAdd.SaveText();
-					sys->reserveManager.AddReserveData(addList);
+					SaveAutoAddText(sys->manualAutoAdd, L"manualAutoAdd");
+					sys->reserveManager.AddReserveData(addList, false, true);
 				}
 				sys->notifyManager.AddNotify(NOTIFY_UPDATE_AUTOADD_MANUAL);
 				res.SetParam(CMD_SUCCESS);
@@ -2540,8 +2550,8 @@ void CEpgTimerSrvMain::CtrlCmdCallback(CEpgTimerSrvMain* sys, const CCmdStream& 
 						sys->autoAddCheckItr = sys->epgAutoAdd.GetMap().begin();
 						sys->AutoAddReserveEPG(item, addList);
 					}
-					sys->epgAutoAdd.SaveText();
-					sys->reserveManager.AddReserveData(addList);
+					SaveAutoAddText(sys->epgAutoAdd, L"epgAutoAdd");
+					sys->reserveManager.AddReserveData(addList, false, true);
 				}
 				sys->notifyManager.AddNotify(NOTIFY_UPDATE_AUTOADD_EPG);
 				res.WriteVALUE(ver);
@@ -2565,8 +2575,8 @@ void CEpgTimerSrvMain::CtrlCmdCallback(CEpgTimerSrvMain* sys, const CCmdStream& 
 							sys->AutoAddReserveEPG(item, addList);
 						}
 					}
-					sys->epgAutoAdd.SaveText();
-					sys->reserveManager.AddReserveData(addList);
+					SaveAutoAddText(sys->epgAutoAdd, L"epgAutoAdd");
+					sys->reserveManager.AddReserveData(addList, false, true);
 				}
 				sys->notifyManager.AddNotify(NOTIFY_UPDATE_AUTOADD_EPG);
 				res.WriteVALUE(ver);
@@ -2605,8 +2615,8 @@ void CEpgTimerSrvMain::CtrlCmdCallback(CEpgTimerSrvMain* sys, const CCmdStream& 
 						item.dataID = sys->manualAutoAdd.AddData(item);
 						sys->AutoAddReserveProgram(item, addList);
 					}
-					sys->manualAutoAdd.SaveText();
-					sys->reserveManager.AddReserveData(addList);
+					SaveAutoAddText(sys->manualAutoAdd, L"manualAutoAdd");
+					sys->reserveManager.AddReserveData(addList, false, true);
 				}
 				sys->notifyManager.AddNotify(NOTIFY_UPDATE_AUTOADD_MANUAL);
 				res.WriteVALUE(ver);
@@ -2629,8 +2639,8 @@ void CEpgTimerSrvMain::CtrlCmdCallback(CEpgTimerSrvMain* sys, const CCmdStream& 
 							sys->AutoAddReserveProgram(item, addList);
 						}
 					}
-					sys->manualAutoAdd.SaveText();
-					sys->reserveManager.AddReserveData(addList);
+					SaveAutoAddText(sys->manualAutoAdd, L"manualAutoAdd");
+					sys->reserveManager.AddReserveData(addList, false, true);
 				}
 				sys->notifyManager.AddNotify(NOTIFY_UPDATE_AUTOADD_MANUAL);
 				res.WriteVALUE(ver);
@@ -2748,8 +2758,8 @@ void CEpgTimerSrvMain::CtrlCmdCallback(CEpgTimerSrvMain* sys, const CCmdStream& 
 					item.dataID = sys->epgAutoAdd.AddData(item);
 					sys->autoAddCheckItr = sys->epgAutoAdd.GetMap().begin();
 					sys->AutoAddReserveEPG(item, addList);
-					sys->epgAutoAdd.SaveText();
-					sys->reserveManager.AddReserveData(addList);
+					SaveAutoAddText(sys->epgAutoAdd, L"epgAutoAdd");
+					sys->reserveManager.AddReserveData(addList, false, true);
 				}
 				res.SetParam(OLD_CMD_SUCCESS);
 				sys->notifyManager.AddNotify(NOTIFY_UPDATE_AUTOADD_EPG);
@@ -2765,7 +2775,7 @@ void CEpgTimerSrvMain::CtrlCmdCallback(CEpgTimerSrvMain* sys, const CCmdStream& 
 				if( sys->epgAutoAdd.DelData(item.dataID) ){
 					sys->autoAddCheckItr = sys->epgAutoAdd.GetMap().begin();
 				}
-				sys->epgAutoAdd.SaveText();
+				SaveAutoAddText(sys->epgAutoAdd, L"epgAutoAdd");
 				res.SetParam(OLD_CMD_SUCCESS);
 				sys->notifyManager.AddNotify(NOTIFY_UPDATE_AUTOADD_EPG);
 			}
@@ -2784,8 +2794,8 @@ void CEpgTimerSrvMain::CtrlCmdCallback(CEpgTimerSrvMain* sys, const CCmdStream& 
 						sys->autoAddCheckItr = sys->epgAutoAdd.GetMap().begin();
 						sys->AutoAddReserveEPG(item, addList);
 					}
-					sys->epgAutoAdd.SaveText();
-					sys->reserveManager.AddReserveData(addList);
+					SaveAutoAddText(sys->epgAutoAdd, L"epgAutoAdd");
+					sys->reserveManager.AddReserveData(addList, false, true);
 				}
 				res.SetParam(OLD_CMD_SUCCESS);
 				sys->notifyManager.AddNotify(NOTIFY_UPDATE_AUTOADD_EPG);
@@ -4282,7 +4292,7 @@ int CEpgTimerSrvMain::LuaDelAutoAdd(lua_State* L)
 		lock_recursive_mutex lock(ws.sys->autoAddLock);
 		if( ws.sys->epgAutoAdd.DelData((DWORD)lua_tointeger(L, -1)) ){
 			ws.sys->autoAddCheckItr = ws.sys->epgAutoAdd.GetMap().begin();
-			ws.sys->epgAutoAdd.SaveText();
+			SaveAutoAddText(ws.sys->epgAutoAdd, L"epgAutoAdd");
 			ws.sys->notifyManager.AddNotify(NOTIFY_UPDATE_AUTOADD_EPG);
 		}
 	}
@@ -4295,7 +4305,7 @@ int CEpgTimerSrvMain::LuaDelManuAdd(lua_State* L)
 	if( lua_gettop(L) == 1 ){
 		lock_recursive_mutex lock(ws.sys->autoAddLock);
 		if( ws.sys->manualAutoAdd.DelData((DWORD)lua_tointeger(L, -1)) ){
-			ws.sys->manualAutoAdd.SaveText();
+			SaveAutoAddText(ws.sys->manualAutoAdd, L"manualAutoAdd");
 			ws.sys->notifyManager.AddNotify(NOTIFY_UPDATE_AUTOADD_MANUAL);
 		}
 	}
@@ -4327,8 +4337,8 @@ int CEpgTimerSrvMain::LuaAddOrChgAutoAdd(lua_State* L)
 						ws.sys->autoAddCheckItr = ws.sys->epgAutoAdd.GetMap().begin();
 						vector<RESERVE_DATA> addList;
 						ws.sys->AutoAddReserveEPG(item, addList);
-						ws.sys->epgAutoAdd.SaveText();
-						ws.sys->reserveManager.AddReserveData(addList);
+						SaveAutoAddText(ws.sys->epgAutoAdd, L"epgAutoAdd");
+						ws.sys->reserveManager.AddReserveData(addList, false, true);
 					}
 				}
 				if( modified ){
@@ -4372,8 +4382,8 @@ int CEpgTimerSrvMain::LuaAddOrChgManuAdd(lua_State* L)
 				if( modified ){
 					vector<RESERVE_DATA> addList;
 					ws.sys->AutoAddReserveProgram(item, addList);
-					ws.sys->manualAutoAdd.SaveText();
-					ws.sys->reserveManager.AddReserveData(addList);
+					SaveAutoAddText(ws.sys->manualAutoAdd, L"manualAutoAdd");
+					ws.sys->reserveManager.AddReserveData(addList, false, true);
 				}
 			}
 			if( modified ){
