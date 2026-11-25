@@ -371,7 +371,7 @@ void CEpgDataCap_BonDlg::OnSysCommand(UINT nID, LPARAM lParam, BOOL* pbProcessed
 			disableKeyboardHook = TRUE;
 			int result = DarkAwareMessageBox( m_hWnd, L"録画中ですが終了しますか？", caption, MB_YESNO | MB_ICONQUESTION );
 			disableKeyboardHook = FALSE;
-			if( result == IDNO ){
+			if( result != IDYES ){
 				*pbProcessed = TRUE;
 			}
 		}
@@ -1288,7 +1288,7 @@ void CEpgDataCap_BonDlg::OnBnClickedButtonCancel()
 		disableKeyboardHook = TRUE;
 		int result = DarkAwareMessageBox( m_hWnd, L"録画を停止しますか？", caption, MB_YESNO | MB_ICONQUESTION );
 		disableKeyboardHook = FALSE;
-		if( result == IDNO ){
+		if( result != IDYES ){
 			return ;
 		}
 	}
