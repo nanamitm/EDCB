@@ -1373,7 +1373,11 @@ void CCmdStream::SetParam(DWORD param)
 void CCmdStream::Resize(DWORD dataSize)
 {
 	if( dataSize ){
-		buff.resize(8 + dataSize);
+		//8+dataSizeをDWORDで計算すると桁あふれして小さなバッファになるため、size_tで計算する
+		if( (size_t)dataSize > (std::numeric_limits<size_t>::max)() - 8 ){
+			throw std::length_error("CCmdStream::Resize");
+		}
+		buff.resize((size_t)8 + dataSize);
 		params[1] = dataSize;
 		std::copy((BYTE*)params, (BYTE*)params + 8, buff.data());
 	}else{
