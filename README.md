@@ -13,7 +13,17 @@ Configuration files are stored in the 'ini' directory.
 [01aff08](https://github.com/xtne6f/EDCB/commits/01aff08a5df4c7e63c86ea7136c20b259c08229e)にかけて改行コードの混乱があったようです。[改行のみ調整したタグ](https://github.com/xtne6f/EDCB/commits/log-to-crlf)も作りました(※改行以外の調整は一切無し)。
 
 各々のコミットを大まかに理解したうえで自由にマージやcherry-pickしてください。大体[こんな方針](https://github.com/xtne6f/EDCB/pull/1)で改造しています。  
-[branch:work](https://github.com/xtne6f/EDCB/tree/work)をベースに、以下をマージしたものが[branch:work-plus-s](https://github.com/xtne6f/EDCB/tree/work-plus-s)です。
+**ブランチ構成**
+
+このフォークでは以下の2つのブランチだけを使っています。
+
+[branch:work-plus-s](https://github.com/nanamitm/EDCB/tree/work-plus-s)
+* 開発用のブランチ。変更はすべてここに直接マージする
+
+[branch:for-release](https://github.com/nanamitm/EDCB/tree/for-release)
+* リリース用のブランチ。for-releaseワークフローが更新する
+
+work-plus-sは、元リポジトリ(xtne6f/EDCB)の[branch:work](https://github.com/xtne6f/EDCB/tree/work)をベースに、以下をマージしたものから始まっています。これらのブランチはこのフォークにはありません。
 
 [branch:misc](https://github.com/xtne6f/EDCB/tree/misc)
 * 細かな重箱つつきのブランチ。たまに機能追加もある
