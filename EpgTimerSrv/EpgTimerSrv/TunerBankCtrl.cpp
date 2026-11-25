@@ -8,10 +8,34 @@
 #include "../../Common/IniUtil.h"
 #include <tlhelp32.h>
 #else
+#include <errno.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #endif
+
+namespace
+{
+//予期せず中断した予約の録画ファイルパスを取得する(TUNER_RESERVE_WORK用)
+template<class T>
+wstring GetInterruptedRecFilePath(const T& r)
+{
+	if( r.state != CTunerBankCtrl::TR_REC || r.recMode == RECMODE_VIEW ){
+		return wstring();
+	}
+	return r.ctrlID[0] != 0 ? r.recFilePath[0] : r.recFilePath[1];
+}
+
+#ifndef _WIN32
+//自分の子とは限らないプロセスがまだ存在するかどうか
+bool IsOtherProcessAlive(DWORD pid)
+{
+	//子プロセスなら回収する。子でなければwaitpid()は失敗するのでkill()で調べる
+	pid_t ret = waitpid((pid_t)pid, nullptr, WNOHANG);
+	return ret == 0 || (ret < 0 && errno == ECHILD && kill((pid_t)pid, 0) == 0);
+}
+#endif
+}
 
 CTunerBankCtrl::CTunerBankCtrl(DWORD tunerID_, LPCWSTR bonFileName_, WORD epgCapMax, const map<DWORD, CH_DATA4>& chMap_, CNotifyManager& notifyManager_, CEpgDBManager& epgDBManager_)
 	: tunerID(tunerID_)
@@ -232,6 +256,8 @@ vector<CTunerBankCtrl::CHECK_RESULT> CTunerBankCtrl::Check(vector<DWORD>* starte
 				CHECK_RESULT ret;
 				ret.type = CHECK_ERR_REC;
 				ret.reserveID = itr->first;
+				//途中まで録画されたファイルを履歴から辿れるようにする
+				ret.recFilePath = GetInterruptedRecFilePath(itr->second);
 				retList.push_back(ret);
 				this->reserveMap.erase(itr++);
 			}else{
@@ -312,6 +338,7 @@ vector<CTunerBankCtrl::CHECK_RESULT> CTunerBankCtrl::Check(vector<DWORD>* starte
 					CHECK_RESULT ret;
 					ret.type = CHECK_ERR_REC;
 					ret.reserveID = itr->first;
+					ret.recFilePath = GetInterruptedRecFilePath(itr->second);
 					retList.push_back(ret);
 					this->reserveMap.erase(itr++);
 				}else{
@@ -405,7 +432,12 @@ vector<CTunerBankCtrl::CHECK_RESULT> CTunerBankCtrl::Check(vector<DWORD>* starte
 						startedReserveIDList->push_back(r.reserveID);
 					}
 				}else{
-					//開始できなかった
+					//開始できなかった。作成済みの録画制御はチューナに残さない
+					for( int i = 0; i < 2; i++ ){
+						if( r.ctrlID[i] != 0 ){
+							ctrlCmd.SendViewDeleteCtrl(r.ctrlID[i]);
+						}
+					}
 					ret.type = CHECK_ERR_RECSTART;
 				}
 			}
@@ -1422,7 +1454,7 @@ bool CTunerBankCtrl::CloseOtherTuner()
 #ifdef _WIN32
 					WaitForSingleObject(this->hTunerProcess, 10000);
 #else
-					for( int timeout = 10000; timeout > 0 && waitpid(this->tunerPid, nullptr, WNOHANG) == 0; timeout -= 10 ){
+					for( int timeout = 10000; timeout > 0 && IsOtherProcessAlive(this->tunerPid); timeout -= 10 ){
 						SleepForMsec(10);
 					}
 #endif

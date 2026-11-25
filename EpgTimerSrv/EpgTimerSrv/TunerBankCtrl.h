@@ -38,16 +38,16 @@ public:
 		CHECK_ERR_PASS,				//終了時間が過ぎていた
 	};
 	struct CHECK_RESULT {
-		DWORD type;
-		DWORD reserveID;
-		//以下はtype<=CHECK_ERR_RECENDのとき有効
+		DWORD type = 0;
+		DWORD reserveID = 0;
+		//以下はtype<=CHECK_ERR_RECのとき有効
 		wstring recFilePath;
-		bool continueRec;
+		bool continueRec = false;
 		//continueRec(連続録画開始による終了)のときdropsとscramblesは常に0
-		LONGLONG drops;
-		LONGLONG scrambles;
+		LONGLONG drops = 0;
+		LONGLONG scrambles = 0;
 		//以下はtype==CHECK_ENDのとき有効
-		SYSTEMTIME epgStartTime;
+		SYSTEMTIME epgStartTime = {};
 		wstring epgEventName;
 	};
 	struct TUNER_RESERVE {
