@@ -174,9 +174,9 @@ namespace EpgTimer
                     File.Move(originalPath, destPath);
                     moved = true;
                 }
-                catch (FileNotFoundException)
+                catch (IOException ex) when (ex is FileNotFoundException || ex is DirectoryNotFoundException)
                 {
-                    // 手動で移動済みの場合は、既存ファイルへの関連付けを確認する。
+                    // 手動で移動済みの場合(元のフォルダーごと無くなった場合を含む)は、既存ファイルへの関連付けを確認する。
                     bool destinationExists;
                     try
                     {
@@ -270,6 +270,7 @@ namespace EpgTimer
                     }
                 }
             }
+            catch (DirectoryNotFoundException) { }
             catch (Exception ex)
             {
                 MessageBox.Show("関連ファイルを確認できませんでした。\r\n" + ex.Message);
@@ -304,6 +305,7 @@ namespace EpgTimer
                 File.Move(source, destination);
             }
             catch (FileNotFoundException) { }
+            catch (DirectoryNotFoundException) { }
             catch (Exception ex)
             {
                 MessageBox.Show("移動に失敗しました: " + source + "\r\n" + ex.Message);
