@@ -21,6 +21,9 @@
 #include <poll.h>
 #include <sys/file.h>
 #include <sys/stat.h>
+#ifdef __linux__
+#include <sys/syscall.h>
+#endif
 #include <sys/types.h>
 #include <unistd.h>
 #endif
@@ -3179,6 +3182,7 @@ void CEpgTimerSrvMain::InitLuaCallback(lua_State* L, LPCSTR serverRandom)
 		{ "GetRecFileInfo", LuaGetRecFileInfo },
 		{ "GetRecFileInfoBasic", LuaGetRecFileInfoBasic },
 		{ "ChgPathRecFileInfo", LuaChgPathRecFileInfo },
+		{ "RenameFileNoReplace", LuaRenameFileNoReplace },
 		{ "ChgProtectRecFileInfo", LuaChgProtectRecFileInfo },
 		{ "DelRecFileInfo", LuaDelRecFileInfo },
 		{ "GetTunerReserveAll", LuaGetTunerReserveAll },
@@ -4119,6 +4123,25 @@ int CEpgTimerSrvMain::LuaChgPathRecFileInfo(lua_State* L)
 		}
 	}
 	lua_pushboolean(L, false);
+	return 1;
+}
+
+int CEpgTimerSrvMain::LuaRenameFileNoReplace(lua_State* L)
+{
+	LPCSTR from = lua_tostring(L, 1);
+	LPCSTR to = lua_tostring(L, 2);
+	bool renamed = false;
+	if( lua_gettop(L) == 2 && from && to && *from && *to ){
+#ifdef _WIN32
+		wstring source, destination;
+		UTF8toW(from, source);
+		UTF8toW(to, destination);
+		renamed = MoveFileEx(source.c_str(), destination.c_str(), 0) != FALSE;
+#elif defined(SYS_renameat2) && defined(RENAME_NOREPLACE)
+		renamed = syscall(SYS_renameat2, AT_FDCWD, from, AT_FDCWD, to, RENAME_NOREPLACE) == 0;
+#endif
+	}
+	lua_pushboolean(L, renamed);
 	return 1;
 }
 
