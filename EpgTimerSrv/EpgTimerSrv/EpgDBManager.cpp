@@ -124,10 +124,22 @@ void ReadOldArchiveEventInfo(FILE* fp, const vector<LONGLONG>& index, size_t ind
 	}
 }
 
-//クローズまで成功した一時ファイルで保存先を置き換える。
-bool SaveArchiveFile(const fs_path& path, const CCmdStream& header, const vector<CCmdStream>* blocks = nullptr)
+//fromでtoを置き換える
+bool ReplaceArchiveFile(const fs_path& from, const fs_path& to)
 {
-	const fs_path tempPath = fs_path(path).concat(L".tmp");
+#ifdef _WIN32
+	return MoveFileEx(from.c_str(), to.c_str(), MOVEFILE_REPLACE_EXISTING) != FALSE;
+#else
+	string fromName, toName;
+	WtoUTF8(from.native(), fromName);
+	WtoUTF8(to.native(), toName);
+	return rename(fromName.c_str(), toName.c_str()) == 0;
+#endif
+}
+
+//一時ファイルに書き込み、クローズまで成功したかどうかを返す。失敗時は一時ファイルを消す
+bool WriteArchiveTempFile(const fs_path& tempPath, const CCmdStream& header, const vector<CCmdStream>* blocks = nullptr)
+{
 	if( FILE* fp = UtilOpenFile(tempPath, UTIL_SECURE_WRITE) ){
 		bool written = fwrite(header.GetData(), 1, header.GetDataSize(), fp) == header.GetDataSize();
 		if( blocks ){
@@ -136,16 +148,20 @@ bool SaveArchiveFile(const fs_path& path, const CCmdStream& header, const vector
 			}
 		}
 		if( fclose(fp) == 0 && written ){
-#ifdef _WIN32
-			if( MoveFileEx(tempPath.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING) ){
-#else
-			string tempName, name;
-			WtoUTF8(tempPath.native(), tempName);
-			WtoUTF8(path.native(), name);
-			if( rename(tempName.c_str(), name.c_str()) == 0 ){
-#endif
-				return true;
-			}
+			return true;
+		}
+		DeleteFile(tempPath.c_str());
+	}
+	return false;
+}
+
+//クローズまで成功した一時ファイルで保存先を置き換える。
+bool SaveArchiveFile(const fs_path& path, const CCmdStream& header)
+{
+	const fs_path tempPath = fs_path(path).concat(L".tmp");
+	if( WriteArchiveTempFile(tempPath, header) ){
+		if( ReplaceArchiveFile(tempPath, path) ){
+			return true;
 		}
 		DeleteFile(tempPath.c_str());
 	}
@@ -160,31 +176,55 @@ LONGLONG ArchiveWeekStart(LONGLONG startTime, LONGLONG weekEnd)
 	return weekEnd - ((weekEnd - startTime - 1) / ARCHIVE_WEEK + 1) * ARCHIVE_WEEK;
 }
 
-bool SaveOldArchive(const fs_path& path, LONGLONG weekStart, map<LONGLONG, EPGDB_SERVICE_EVENT_INFO>& services, vector<LONGLONG>& index)
+//長期アーカイブ用ファイルの書き込み準備の結果
+struct PREPARED_OLD_ARCHIVE {
+	LONGLONG weekStart;
+	fs_path path;
+	fs_path tempPath;
+	//既存ファイルが壊れているので退避してから置き換える
+	bool replaceBroken;
+	vector<LONGLONG> index;
+};
+
+//既存の長期アーカイブとマージした内容を一時ファイルに書き込む。データベースの排他は不要
+//置き換えはCommitOldArchive()で行う
+bool PrepareOldArchive(PREPARED_OLD_ARCHIVE& prepared, map<LONGLONG, EPGDB_SERVICE_EVENT_INFO>& services)
 {
+	const fs_path& path = prepared.path;
+	prepared.tempPath = fs_path(path).concat(L".tmp");
+	prepared.replaceBroken = false;
+	prepared.index.clear();
 	bool mightExist = false;
 	if( UtilFileExists(path, &mightExist).first || mightExist ){
 		//以前の週別保存が成功していても、短期アーカイブの保存失敗などで同じ週を再度処理し得る。
 		std::unique_ptr<FILE, fclose_deleter> fp(UtilOpenFile(path, UTIL_SECURE_READ));
+		if( !fp ){
+			//一時的に開けないだけかもしれないので次回に再試行する
+			AddDebugLogFormat(L"★Cannot open EPG archive: %ls", path.c_str());
+			return false;
+		}
 		vector<BYTE> buffer;
 		vector<LONGLONG> previousIndex;
 		DWORD headerSize = 0;
-		if( fp ){
-			ReadOldArchiveIndex(fp.get(), buffer, previousIndex, &headerSize);
-		}
-		if( previousIndex.empty() || previousIndex.size() % 4 != 0 ){
-			AddDebugLogFormat(L"★Cannot read EPG archive index: %ls", path.c_str());
-			return false;
-		}
-		for( size_t i = 0; i < previousIndex.size(); i += 4 ){
-			EPGDB_SERVICE_EVENT_INFO previous = {};
+		ReadOldArchiveIndex(fp.get(), buffer, previousIndex, &headerSize);
+		vector<pair<LONGLONG, EPGDB_SERVICE_EVENT_INFO>> previousList;
+		bool broken = previousIndex.empty() || previousIndex.size() % 4 != 0;
+		for( size_t i = 0; broken == false && i < previousIndex.size(); i += 4 ){
+			previousList.emplace_back(previousIndex[i + 1], EPGDB_SERVICE_EVENT_INFO());
+			EPGDB_SERVICE_EVENT_INFO& previous = previousList.back().second;
 			ReadOldArchiveEventInfo(fp.get(), previousIndex, i, headerSize, buffer, previous);
-			if( previous.eventList.empty() || previousIndex[i + 1] !=
-			    Create64Key(previous.serviceInfo.ONID, previous.serviceInfo.TSID, previous.serviceInfo.SID) ){
-				AddDebugLogFormat(L"★Cannot read EPG archive data: %ls", path.c_str());
-				return false;
-			}
-			auto inserted = services.emplace(previousIndex[i + 1], EPGDB_SERVICE_EVENT_INFO());
+			broken = previous.eventList.empty() || previousIndex[i + 1] !=
+			         Create64Key(previous.serviceInfo.ONID, previous.serviceInfo.TSID, previous.serviceInfo.SID);
+		}
+		if( broken ){
+			//読めないファイルを残すといつまでも保存できないので、退避して今回の内容だけで作り直す
+			AddDebugLogFormat(L"★Broken EPG archive will be replaced: %ls", path.c_str());
+			prepared.replaceBroken = true;
+			previousList.clear();
+		}
+		for( auto& previousItem : previousList ){
+			EPGDB_SERVICE_EVENT_INFO& previous = previousItem.second;
+			auto inserted = services.emplace(previousItem.first, EPGDB_SERVICE_EVENT_INFO());
 			if( inserted.second ){
 				inserted.first->second = std::move(previous);
 			}else{
@@ -207,20 +247,43 @@ bool SaveOldArchive(const fs_path& path, LONGLONG weekStart, map<LONGLONG, EPGDB
 	for( const auto& service : services ){
 		LONGLONG first = LLONG_MAX, last = LLONG_MIN;
 		for( const EPGDB_EVENT_INFO& event : service.second.eventList ){
-			LONGLONG offset = ConvertI64Time(event.start_time) - weekStart;
+			LONGLONG offset = ConvertI64Time(event.start_time) - prepared.weekStart;
 			first = min(first, offset);
 			last = max(last, offset);
 		}
 		blocks.emplace_back();
 		blocks.back().WriteVALUE2WithVersion(5, service.second);
-		index.push_back(blocks.back().GetDataSize());
-		index.push_back(service.first);
-		index.push_back(first);
-		index.push_back(last);
+		prepared.index.push_back(blocks.back().GetDataSize());
+		prepared.index.push_back(service.first);
+		prepared.index.push_back(first);
+		prepared.index.push_back(last);
 	}
 	CCmdStream header;
-	header.WriteVALUE(index);
-	return SaveArchiveFile(path, header, &blocks);
+	header.WriteVALUE(prepared.index);
+	if( WriteArchiveTempFile(prepared.tempPath, header, &blocks) == false ){
+		AddDebugLogFormat(L"★Cannot save EPG archive: %ls", path.c_str());
+		return false;
+	}
+	return true;
+}
+
+//準備した一時ファイルで長期アーカイブ用ファイルを置き換える
+//読み込み中の検索が無い(epgMapRefLockが0の)状態で呼ぶこと
+bool CommitOldArchive(const PREPARED_OLD_ARCHIVE& prepared)
+{
+	if( prepared.replaceBroken ){
+		//調査できるように壊れたファイルを残す(前回退避したものは上書き)
+		fs_path brokenPath = fs_path(prepared.path).concat(L".bad");
+		if( ReplaceArchiveFile(prepared.path, brokenPath) == false ){
+			AddDebugLogFormat(L"★Cannot move broken EPG archive: %ls", prepared.path.c_str());
+		}
+	}
+	if( ReplaceArchiveFile(prepared.tempPath, prepared.path) ){
+		return true;
+	}
+	DeleteFile(prepared.tempPath.c_str());
+	AddDebugLogFormat(L"★Cannot save EPG archive: %ls", prepared.path.c_str());
+	return false;
 }
 
 }
@@ -523,6 +586,25 @@ void CEpgDBManager::LoadThread(CEpgDBManager* sys)
 		}
 	}
 
+	//長期保存の対象になった週(週の開始時刻→サービス→イベント)
+	map<LONGLONG, map<LONGLONG, EPGDB_SERVICE_EVENT_INFO>> oldWeeks;
+	//保存済みか保存期間外になった番組だけを短期アーカイブから取り除く。データベースを排他して呼ぶこと
+	auto removeArchivedEvents = [=](const std::set<LONGLONG>& savedWeeks) {
+		for( auto itr = sys->epgArchive.begin(); itr != sys->epgArchive.end(); ){
+			auto& events = itr->second.eventList;
+			events.erase(std::remove_if(events.begin(), events.end(), [&](const EPGDB_EVENT_INFO& event) {
+				LONGLONG startTime = ConvertI64Time(event.start_time);
+				return startTime <= arcMin || startTime >= arcMax ||
+				       (startTime < oldMax && savedWeeks.count(ArchiveWeekStart(startTime, oldMax)) != 0);
+			}), events.end());
+			if( events.empty() ){
+				itr = sys->epgArchive.erase(itr);
+			}else{
+				++itr;
+			}
+		}
+	};
+
 #ifdef _WIN32
 	if( sys->loadForeground == false ){
 		//フォアグラウンドに復帰
@@ -578,7 +660,6 @@ void CEpgDBManager::LoadThread(CEpgDBManager* sys)
 					}
 				}
 				//保存期間内で長期保存の対象になった週を集める。失敗した週も次回に再試行する。
-				map<LONGLONG, map<LONGLONG, EPGDB_SERVICE_EVENT_INFO>> oldWeeks;
 				for( const auto& service : sys->epgArchive ){
 					for( const EPGDB_EVENT_INFO& event : service.second.eventList ){
 						LONGLONG startTime = ConvertI64Time(event.start_time);
@@ -591,40 +672,11 @@ void CEpgDBManager::LoadThread(CEpgDBManager* sys)
 						}
 					}
 				}
-
-				std::set<LONGLONG> savedWeeks;
-				if( oldWeeks.empty() == false ){
-					fs_path epgArcPath = fs_path(settingPath).append(EPG_ARCHIVE_FOLDER);
-					UtilCreateDirectory(epgArcPath);
-					for( auto& week : oldWeeks ){
-						vector<LONGLONG> index;
-						if( SaveOldArchive(OldArchivePath(epgArcPath.c_str(), week.first), week.first, week.second, index) ){
-							savedWeeks.insert(week.first);
-							size_t i = std::lower_bound(oldCache.front().begin(), oldCache.front().end(), week.first) - oldCache.front().begin();
-							if( i == oldCache.front().size() || oldCache.front()[i] != week.first ){
-								oldCache.front().insert(oldCache.front().begin() + i, week.first);
-								oldCache.emplace(oldCache.begin() + 1 + i);
-							}
-							oldCache[1 + i].swap(index);
-						}
-					}
-				}
-
-				//保存済みか保存期間外になった番組だけを短期アーカイブから取り除く。
-				for( auto itr = sys->epgArchive.begin(); itr != sys->epgArchive.end(); ){
-					auto& events = itr->second.eventList;
-					events.erase(std::remove_if(events.begin(), events.end(), [&](const EPGDB_EVENT_INFO& event) {
-						LONGLONG startTime = ConvertI64Time(event.start_time);
-						return startTime <= arcMin || startTime >= arcMax ||
-						       (startTime < oldMax && savedWeeks.count(ArchiveWeekStart(startTime, oldMax)) != 0);
-					}), events.end());
-					if( events.empty() ){
-						itr = sys->epgArchive.erase(itr);
-					}else{
-						++itr;
-					}
-				}
 				sys->epgOldIndexCache.swap(oldCache);
+				if( oldWeeks.empty() ){
+					//長期保存するものがなければここで完了
+					removeArchivedEvents(std::set<LONGLONG>());
+				}
 				break;
 			}
 		}
@@ -637,6 +689,60 @@ void CEpgDBManager::LoadThread(CEpgDBManager* sys)
 	}
 #endif
 	nextMap.clear();
+
+	if( oldWeeks.empty() == false ){
+		//長期アーカイブ用ファイルの読み込みと書き込みは、検索を止めないようデータベースを排他せずに行う
+		//データベースを変更するのはこのスレッドだけなので、短期アーカイブの内容は置き換えまで変わらない
+		vector<PREPARED_OLD_ARCHIVE> preparedList;
+		fs_path epgArcPath = fs_path(settingPath).append(EPG_ARCHIVE_FOLDER);
+		UtilCreateDirectory(epgArcPath);
+		for( auto& week : oldWeeks ){
+			preparedList.emplace_back();
+			preparedList.back().weekStart = week.first;
+			preparedList.back().path = OldArchivePath(epgArcPath.c_str(), week.first);
+			if( PrepareOldArchive(preparedList.back(), week.second) == false ){
+				preparedList.pop_back();
+			}
+		}
+		oldWeeks.clear();
+
+#ifdef _WIN32
+		if( sys->loadForeground == false ){
+			//フォアグラウンドに復帰
+			SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_NORMAL);
+		}
+#endif
+		for(;;){
+			//置き換えとキャッシュの更新は読み込み中の検索がないときに行う
+			{
+				lock_recursive_mutex lock(sys->epgMapLock);
+				if( sys->epgMapRefLock.first == 0 ){
+					std::set<LONGLONG> savedWeeks;
+					vector<vector<LONGLONG>>& cache = sys->epgOldIndexCache;
+					for( PREPARED_OLD_ARCHIVE& prepared : preparedList ){
+						if( CommitOldArchive(prepared) ){
+							savedWeeks.insert(prepared.weekStart);
+							size_t i = std::lower_bound(cache.front().begin(), cache.front().end(), prepared.weekStart) - cache.front().begin();
+							if( i == cache.front().size() || cache.front()[i] != prepared.weekStart ){
+								cache.front().insert(cache.front().begin() + i, prepared.weekStart);
+								cache.emplace(cache.begin() + 1 + i);
+							}
+							cache[1 + i].swap(prepared.index);
+						}
+					}
+					removeArchivedEvents(savedWeeks);
+					break;
+				}
+			}
+			SleepForMsec(1);
+		}
+#ifdef _WIN32
+		if( sys->loadForeground == false ){
+			//バックグラウンドに移行
+			SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+		}
+#endif
+	}
 
 	//アーカイブファイルに書き込む
 	if( arcMin < LLONG_MAX ){
