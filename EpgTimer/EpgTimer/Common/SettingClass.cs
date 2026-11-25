@@ -122,17 +122,27 @@ namespace EpgTimer
 
     public class EpgSetting
     {
-        public double MinHeight { get; set; }
+        // 番組表の配置計算はこれらの値で割ったり高さや幅に掛けたりするため、0以下や過大な値で
+        // ゼロ除算や負のサイズによる例外、巨大な描画領域が生じないよう範囲内に収める
+        private static double Clamp(double value, double min, double max)
+        {
+            return double.IsNaN(value) ? min : Math.Max(min, Math.Min(value, max));
+        }
+        private double minHeight = 2;
+        private double serviceWidth = 150;
+        private double fontSize = 12;
+        private double fontSizeTitle = 12;
+        public double MinHeight { get { return minHeight; } set { minHeight = Clamp(value, 0.1, 100); } }
         public double MinimumHeight { get; set; }
-        public double ServiceWidth { get; set; }
+        public double ServiceWidth { get { return serviceWidth; } set { serviceWidth = Clamp(value, 10, 2000); } }
         public bool MouseScrollAuto { get; set; }
         public double ScrollSize { get; set; }
         public bool MouseHorizontalScrollAuto { get; set; }
         public double HorizontalScrollSize { get; set; }
         public string FontName { get; set; }
-        public double FontSize { get; set; }
+        public double FontSize { get { return fontSize; } set { fontSize = Clamp(value, 1, 200); } }
         public string FontNameTitle { get; set; }
-        public double FontSizeTitle { get; set; }
+        public double FontSizeTitle { get { return fontSizeTitle; } set { fontSizeTitle = Clamp(value, 1, 200); } }
         public bool FontBoldTitle { get; set; }
         public double DragScroll { get; set; }
         public List<string> ContentColorList { get; set; }
