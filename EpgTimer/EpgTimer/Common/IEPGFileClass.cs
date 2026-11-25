@@ -174,6 +174,11 @@ namespace EpgTimer
                     {
                         endTime = endTime.AddDays(1);
                     }
+                    // 長さ0では録画されない予約になる
+                    if (endTime == startTime)
+                    {
+                        return false;
+                    }
                     addInfo.StartTime = startTime;
                     addInfo.StartTimeEpg = startTime;
                     addInfo.DurationSecond = (uint)(endTime - startTime).TotalSeconds;
