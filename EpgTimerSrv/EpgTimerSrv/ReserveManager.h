@@ -37,9 +37,10 @@ public:
 	//予約情報を取得する
 	bool GetReserveData(DWORD id, RESERVE_DATA* reserveData, bool getRecFileName = false, CReNamePlugInUtil* util = nullptr) const;
 	//予約情報を追加する
-	bool AddReserveData(const vector<RESERVE_DATA>& reserveList, bool setReserveStatus = false);
+	//applyIfUnsaved: 保存に失敗してもメモリ上には反映する(EPG追従など、録画に直接影響する自動処理用)
+	bool AddReserveData(const vector<RESERVE_DATA>& reserveList, bool setReserveStatus = false, bool applyIfUnsaved = false);
 	//予約情報を変更する
-	bool ChgReserveData(const vector<RESERVE_DATA>& reserveList, bool setReserveStatus = false);
+	bool ChgReserveData(const vector<RESERVE_DATA>& reserveList, bool setReserveStatus = false, bool applyIfUnsaved = false);
 	//予約情報を削除する
 	bool DelReserveData(const vector<DWORD>& idList);
 	//リスト指定または!idListですべての録画済み情報一覧を取得する
@@ -152,6 +153,8 @@ private:
 	//isEpgCap: EPG取得中のチューナが無ければfalse
 	//戻り値: EPG取得が完了した瞬間にtrue
 	bool CheckEpgCap(bool isEpgCap);
+	//EPG取得開始時に一時変更したBasicOnly設定を書き戻す
+	void RestoreEpgCapBasicOnlyFlags();
 	//予約開始(視聴を除く)の最小時刻を取得する
 	LONGLONG GetNearestRecReserveTime() const;
 	//次のEPG取得時刻を取得する

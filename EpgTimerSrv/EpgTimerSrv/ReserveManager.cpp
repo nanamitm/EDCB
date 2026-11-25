@@ -70,7 +70,27 @@ void CReserveManager::Finalize()
 		this->watchdogStopEvent.Set();
 		this->watchdogThread.join();
 	}
+	{
+		lock_recursive_mutex lock(this->managerLock);
+		if( this->epgCapWork ){
+			//EPG取得中に終了するときも、一時変更した設定を残さない
+			RestoreEpgCapBasicOnlyFlags();
+			this->epgCapWork = false;
+		}
+	}
 	this->tunerBankMap.clear();
+}
+
+void CReserveManager::RestoreEpgCapBasicOnlyFlags()
+{
+	if( this->epgCapBasicOnlyFlags >= 0 ){
+		fs_path iniCommonPath = GetCommonIniPath();
+		WritePrivateProfileInt(L"SET", L"BSBasicOnly", (this->epgCapBasicOnlyFlags & 1) != 0, iniCommonPath.c_str());
+		WritePrivateProfileInt(L"SET", L"CS1BasicOnly", (this->epgCapBasicOnlyFlags & 2) != 0, iniCommonPath.c_str());
+		WritePrivateProfileInt(L"SET", L"CS2BasicOnly", (this->epgCapBasicOnlyFlags & 4) != 0, iniCommonPath.c_str());
+		WritePrivateProfileInt(L"SET", L"CS3BasicOnly", (this->epgCapBasicOnlyFlags & 8) != 0, iniCommonPath.c_str());
+		this->epgCapBasicOnlyFlags = -1;
+	}
 }
 
 void CReserveManager::ReloadSetting(const CEpgTimerSrvSetting::SETTING& s)
@@ -233,7 +253,7 @@ bool CReserveManager::GetReserveData(DWORD id, RESERVE_DATA* reserveData, bool g
 	return false;
 }
 
-bool CReserveManager::AddReserveData(const vector<RESERVE_DATA>& reserveList, bool setReserveStatus)
+bool CReserveManager::AddReserveData(const vector<RESERVE_DATA>& reserveList, bool setReserveStatus, bool applyIfUnsaved)
 {
 	if( reserveList.empty() ){
 		return false;
@@ -273,7 +293,10 @@ bool CReserveManager::AddReserveData(const vector<RESERVE_DATA>& reserveList, bo
 	if( modified ){
 		if( pendingReserveText.SaveText() == false ){
 			AddDebugLog(L"CReserveManager::AddReserveData(): Cannot save reservations");
-			return false;
+			if( applyIfUnsaved == false ){
+				return false;
+			}
+			//録画に必要な変更なのでメモリ上には反映する。次に保存できたときにまとめて書き出される
 		}
 		this->reserveText = std::move(pendingReserveText);
 		this->reserveModified = true;
@@ -286,7 +309,7 @@ bool CReserveManager::AddReserveData(const vector<RESERVE_DATA>& reserveList, bo
 	return false;
 }
 
-bool CReserveManager::ChgReserveData(const vector<RESERVE_DATA>& reserveList, bool setReserveStatus)
+bool CReserveManager::ChgReserveData(const vector<RESERVE_DATA>& reserveList, bool setReserveStatus, bool applyIfUnsaved)
 {
 	if( reserveList.empty() ){
 		return false;
@@ -445,7 +468,10 @@ bool CReserveManager::ChgReserveData(const vector<RESERVE_DATA>& reserveList, bo
 	if( modified ){
 		if( pendingReserveText.SaveText() == false ){
 			AddDebugLog(L"CReserveManager::ChgReserveData(): Cannot save reservations");
-			return false;
+			if( applyIfUnsaved == false ){
+				return false;
+			}
+			//録画に必要な変更なのでメモリ上には反映する。次に保存できたときにまとめて書き出される
 		}
 		for( const auto& change : bankChanges ){
 			change();
@@ -990,7 +1016,8 @@ void CReserveManager::CheckTuijyu()
 		}
 	}
 	if( chgList.empty() == false ){
-		ChgReserveData(chgList);
+		//追従を通知済みなので、保存できなくても反映する
+		ChgReserveData(chgList, false, true);
 	}
 }
 
@@ -1224,11 +1251,12 @@ void CReserveManager::CheckTuijyuTuner()
 				}
 			}
 		}
+		//追従とイベントリレーは録画に直接影響し、通知も済んでいるので、保存できなくても反映する
 		if( chgList.empty() == false ){
-			ChgReserveData(chgList, true);
+			ChgReserveData(chgList, true, true);
 		}
 		if( relayAddList.empty() == false ){
-			AddReserveData(relayAddList, true);
+			AddReserveData(relayAddList, true, true);
 		}
 	}
 }
@@ -1773,14 +1801,8 @@ bool CReserveManager::CheckEpgCap(bool isEpgCap)
 		}
 		if( isEpgCap == false ){
 			//EPG取得中のチューナが無くなったので取得完了
-			if( this->epgCapBasicOnlyFlags >= 0 ){
-				//EPG取得開始時の設定を書き戻し
-				fs_path iniCommonPath = GetCommonIniPath();
-				WritePrivateProfileInt(L"SET", L"BSBasicOnly", (this->epgCapBasicOnlyFlags & 1) != 0, iniCommonPath.c_str());
-				WritePrivateProfileInt(L"SET", L"CS1BasicOnly", (this->epgCapBasicOnlyFlags & 2) != 0, iniCommonPath.c_str());
-				WritePrivateProfileInt(L"SET", L"CS2BasicOnly", (this->epgCapBasicOnlyFlags & 4) != 0, iniCommonPath.c_str());
-				WritePrivateProfileInt(L"SET", L"CS3BasicOnly", (this->epgCapBasicOnlyFlags & 8) != 0, iniCommonPath.c_str());
-			}
+			//EPG取得開始時の設定を書き戻し
+			RestoreEpgCapBasicOnlyFlags();
 			this->epgCapWork = false;
 			doneEpgCap = true;
 		}
