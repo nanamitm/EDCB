@@ -1758,8 +1758,7 @@ void CEpgTimerSrvMain::CtrlCmdCallback(CEpgTimerSrvMain* sys, const CCmdStream& 
 		{
 			AddDebugLog(L"CMD2_EPG_SRV_CHG_PATH_RECINFO");
 			vector<REC_FILE_INFO> list;
-			if( cmd.ReadVALUE(&list) ){
-				sys->reserveManager.ChgPathRecFileInfo(list);
+			if( cmd.ReadVALUE(&list) && sys->reserveManager.ChgPathRecFileInfo(list) ){
 				res.SetParam(CMD_SUCCESS);
 			}
 		}
@@ -4113,10 +4112,12 @@ int CEpgTimerSrvMain::LuaChgPathRecFileInfo(lua_State* L)
 			vector<REC_FILE_INFO> list(1);
 			list.front().id = (DWORD)lua_tointeger(L, 1);
 			UTF8toW(path, list.front().recFilePath);
-			ws.sys->reserveManager.ChgPathRecFileInfo(list);
+			lua_pushboolean(L, ws.sys->reserveManager.ChgPathRecFileInfo(list));
+			return 1;
 		}
 	}
-	return 0;
+	lua_pushboolean(L, false);
+	return 1;
 }
 
 int CEpgTimerSrvMain::LuaChgProtectRecFileInfo(lua_State* L)

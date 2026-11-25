@@ -235,8 +235,12 @@ bool CReserveManager::GetReserveData(DWORD id, RESERVE_DATA* reserveData, bool g
 
 bool CReserveManager::AddReserveData(const vector<RESERVE_DATA>& reserveList, bool setReserveStatus)
 {
+	if( reserveList.empty() ){
+		return false;
+	}
 	lock_recursive_mutex lock(this->managerLock);
 
+	CParseReserveText pendingReserveText = this->reserveText;
 	bool modified = false;
 	LONGLONG minStartTime = LLONG_MAX;
 	LONGLONG now = GetNowI64Time();
@@ -255,8 +259,7 @@ bool CReserveManager::AddReserveData(const vector<RESERVE_DATA>& reserveList, bo
 			}
 			r.ngTunerIDList.clear();
 			r.recFileNameList.clear();
-			r.reserveID = this->reserveText.AddReserve(r);
-			this->reserveModified = true;
+			r.reserveID = pendingReserveText.AddReserve(r);
 			modified = true;
 			if( r.recSetting.IsNoRec() == false ){
 				LONGLONG startTime;
@@ -268,7 +271,12 @@ bool CReserveManager::AddReserveData(const vector<RESERVE_DATA>& reserveList, bo
 		}
 	}
 	if( modified ){
-		this->reserveText.SaveText();
+		if( pendingReserveText.SaveText() == false ){
+			AddDebugLog(L"CReserveManager::AddReserveData(): Cannot save reservations");
+			return false;
+		}
+		this->reserveText = std::move(pendingReserveText);
+		this->reserveModified = true;
 		ReloadBankMap(minStartTime);
 		CheckAutoDel();
 		AddNotifyAndPostBat(NOTIFY_UPDATE_RESERVE_INFO);
@@ -543,15 +551,26 @@ void CReserveManager::DelRecFileInfo(const vector<DWORD>& idList)
 	AddNotifyAndPostBat(NOTIFY_UPDATE_REC_INFO);
 }
 
-void CReserveManager::ChgPathRecFileInfo(const vector<REC_FILE_INFO>& infoList)
+bool CReserveManager::ChgPathRecFileInfo(const vector<REC_FILE_INFO>& infoList)
 {
 	lock_recursive_mutex lock(this->managerLock);
 
-	for( const REC_FILE_INFO& item : infoList ){
-		this->recInfoText.ChgPathRecInfo(item.id, item.recFilePath.c_str());
+	if( infoList.empty() ){
+		return true;
 	}
-	this->recInfoText.SaveText();
+	CParseRecInfoText pendingRecInfo = this->recInfoText;
+	for( const REC_FILE_INFO& item : infoList ){
+		if( pendingRecInfo.ChgPathRecInfo(item.id, item.recFilePath.c_str()) == false ){
+			return false;
+		}
+	}
+	if( pendingRecInfo.SaveText() == false ){
+		AddDebugLog(L"CReserveManager::ChgPathRecFileInfo(): Cannot save recording history");
+		return false;
+	}
+	this->recInfoText = std::move(pendingRecInfo);
 	AddNotifyAndPostBat(NOTIFY_UPDATE_REC_INFO);
+	return true;
 }
 
 void CReserveManager::ChgProtectRecFileInfo(const vector<REC_FILE_INFO>& infoList)
