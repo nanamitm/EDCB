@@ -284,14 +284,14 @@ void CEpgDBManager::LoadThread(CEpgDBManager* sys)
 			std::unique_ptr<FILE, fclose_deleter> file;
 			//非_WIN32環境では必ずopen(tmp)->close(tmp)->rename(tmp,master)なので複雑なことは不要
 #ifdef _WIN32
-			//一時ファイルの状態を調べる。取得側のCreateFile(tmp)→CloseHandle(tmp)→CopyFile(tmp,master)→DeleteFile(tmp)の流れをある程度仮定
+			//旧版の取得側が一時ファイルから上書きコピーする場合も考慮する。
 			bool swapped = false;
 			bool mightExist = false;
 			if( UtilFileExists(fs_path(path).concat(L".tmp"), &mightExist).first || mightExist ){
 				//一時ファイルがある→もうすぐ上書きされるかもしれないので共有で開いて退避させる
 				AddDebugLogFormat(L"★lockless read %ls", path.c_str());
 				for( int retry = 0; retry < 25; retry++ ){
-					std::unique_ptr<FILE, fclose_deleter> masterFile(UtilOpenFile(path, UTIL_SHARED_READ));
+					std::unique_ptr<FILE, fclose_deleter> masterFile(UtilOpenFile(path, UTIL_SHARED_READ | UTIL_SH_DELETE));
 					if( !masterFile ){
 						SleepForMsec(200);
 						continue;
@@ -338,8 +338,8 @@ void CEpgDBManager::LoadThread(CEpgDBManager* sys)
 			}else
 #endif
 			{
-				//排他で開く
-				file.reset(UtilOpenFile(path, UTIL_SECURE_READ));
+				//書き込みを拒否するが、取得側での原子的な置換は許可する。
+				file.reset(UtilOpenFile(path, UTIL_SECURE_READ | UTIL_SH_DELETE));
 			}
 			if( !file ){
 				AddDebugLogFormat(L"Error %ls", path.c_str());

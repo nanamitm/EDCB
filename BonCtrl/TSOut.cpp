@@ -4,6 +4,56 @@
 #include "../Common/TimeUtil.h"
 #include "../Common/EpgTimerUtil.h"
 
+#ifdef _WIN32
+namespace
+{
+
+bool ReplaceCapturedEpgFile(const wstring& source, const wstring& destination)
+{
+	if( MoveFileEx(source.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING) ){
+		return true;
+	}
+
+	// Windows 10以降では共有削除を許可した読者が旧ファイルを開いていても置換できる。
+	// Windows 7向けのヘッダーにないFileRenameInfoExのレイアウトと値を使う。
+	struct RENAME_INFO_EX {
+		DWORD flags;
+		HANDLE rootDirectory;
+		DWORD fileNameLength;
+		WCHAR fileName[1];
+	};
+	const auto renameInfoEx = static_cast<FILE_INFO_BY_HANDLE_CLASS>(22);
+	const DWORD replaceWithOpenReaders = 0x00000001 | 0x00000002;
+	DWORD pathSize = GetFullPathName(destination.c_str(), 0, nullptr, nullptr);
+	if( pathSize == 0 ){
+		return false;
+	}
+	vector<WCHAR> fullPath(pathSize);
+	DWORD pathLength = GetFullPathName(destination.c_str(), pathSize, fullPath.data(), nullptr);
+	if( pathLength == 0 || pathLength >= pathSize ){
+		return false;
+	}
+	RENAME_INFO_EX info = {};
+	info.flags = replaceWithOpenReaders;
+	info.fileNameLength = pathLength * sizeof(WCHAR);
+	const DWORD bufferSize = (DWORD)sizeof(info) + info.fileNameLength;
+	vector<BYTE> buffer(bufferSize);
+	memcpy(buffer.data(), &info, offsetof(RENAME_INFO_EX, fileName));
+	memcpy(buffer.data() + offsetof(RENAME_INFO_EX, fileName), fullPath.data(), info.fileNameLength);
+
+	HANDLE file = CreateFile(source.c_str(), DELETE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+	                         nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+	if( file == INVALID_HANDLE_VALUE ){
+		return false;
+	}
+	bool renamed = SetFileInformationByHandle(file, renameInfoEx, buffer.data(), bufferSize) != FALSE;
+	CloseHandle(file);
+	return renamed;
+}
+
+}
+#endif
+
 CTSOut::CTSOut(void)
 {
 	this->chChangeState = CH_ST_INIT;
@@ -249,7 +299,12 @@ void CTSOut::AddTSBuff(BYTE* data, DWORD dataSize)
 
 void CTSOut::ParseEpgPacket(BYTE* data, const CTSPacketUtil& packet)
 {
-	if( this->epgFile ){
+	if( this->epgFile && this->epgFileWriteFailed == false ){
+		auto writePacket = [this](const BYTE* packetData) {
+			if( this->epgFileWriteFailed == false && fwrite(packetData, 1, 188, this->epgFile.get()) != 188 ){
+				this->epgFileWriteFailed = true;
+			}
+		};
 		if( packet.PID == 0 && packet.payload_unit_start_indicator ){
 			if( this->epgFileState == EPG_FILE_ST_NONE ){
 				this->epgFileState = EPG_FILE_ST_PAT;
@@ -261,19 +316,20 @@ void CTSOut::ParseEpgPacket(BYTE* data, const CTSPacketUtil& packet)
 				BYTE nullData[188] = { 0x47, 0x1F, 0xFF, 0x10 };
 				std::fill_n(nullData + 4, 184, (BYTE)0xFF);
 				this->epgFileTotPos = my_ftell(this->epgFile.get());
-				fwrite(nullData, 1, 188, this->epgFile.get());
+				this->epgFileWriteFailed = this->epgFileTotPos < 0;
+				writePacket(nullData);
 			}
 		}
 		//まずPAT、次に(あれば)TOTを書き込む。この処理は必須ではないが番組情報をより確実かつ効率的に読み出せる
 		if( packet.PID == 0x14 && this->epgFileState == EPG_FILE_ST_TOT ){
 			this->epgFileState = EPG_FILE_ST_ALL;
-			if( this->epgFileTotPos >= 0 ){
-				my_fseek(this->epgFile.get(), this->epgFileTotPos, SEEK_SET);
+			this->epgFileWriteFailed = my_fseek(this->epgFile.get(), this->epgFileTotPos, SEEK_SET) != 0;
+			writePacket(data);
+			if( this->epgFileWriteFailed == false && my_fseek(this->epgFile.get(), 0, SEEK_END) != 0 ){
+				this->epgFileWriteFailed = true;
 			}
-			fwrite(data, 1, 188, this->epgFile.get());
-			my_fseek(this->epgFile.get(), 0, SEEK_END);
 		}else if( (packet.PID == 0 && this->epgFileState >= EPG_FILE_ST_PAT) || this->epgFileState >= EPG_FILE_ST_TOT ){
-			fwrite(data, 1, 188, this->epgFile.get());
+			writePacket(data);
 		}
 	}
 	this->epgUtil.AddTSPacket(data, 188);
@@ -369,6 +425,7 @@ bool CTSOut::StartSaveEPG(
 
 	this->epgUtil.ClearSectionStatus();
 	this->epgFileState = EPG_FILE_ST_NONE;
+	this->epgFileWriteFailed = false;
 
 	UtilCreateDirectories(fs_path(this->epgTempFilePath).parent_path());
 	this->epgFile.reset(UtilOpenFile(this->epgTempFilePath, UTIL_SECURE_WRITE));
@@ -392,22 +449,28 @@ void CTSOut::StopSaveEPG(
 		return;
 	}
 
-	this->epgFile.reset();
+	bool written = this->epgFileWriteFailed == false && ferror(this->epgFile.get()) == 0 &&
+	               this->epgFileState != EPG_FILE_ST_NONE;
+	if( fclose(this->epgFile.release()) != 0 ){
+		written = false;
+	}
 
+	if( copy && written ){
 #ifdef _WIN32
+		if( ReplaceCapturedEpgFile(this->epgTempFilePath, this->epgFilePath) ){
+#else
+		string strTempPath, strPath;
+		WtoUTF8(this->epgTempFilePath, strTempPath);
+		WtoUTF8(this->epgFilePath, strPath);
+		if( rename(strTempPath.c_str(), strPath.c_str()) == 0 ){
+#endif
+			return;
+		}
+	}
 	if( copy ){
-		CopyFile(this->epgTempFilePath.c_str(), this->epgFilePath.c_str(), FALSE );
+		AddDebugLogFormat(L"★Cannot publish captured EPG data: %ls", this->epgFilePath.c_str());
 	}
 	DeleteFile(this->epgTempFilePath.c_str());
-#else
-	string strTempPath;
-	string strPath;
-	WtoUTF8(this->epgTempFilePath, strTempPath);
-	WtoUTF8(this->epgFilePath, strPath);
-	if( copy == false || rename(strTempPath.c_str(), strPath.c_str()) != 0 ){
-		remove(strTempPath.c_str());
-	}
-#endif
 }
 
 //EPGデータの蓄積状態を取得する
