@@ -36,7 +36,7 @@ jobs:
           $env:MINGW_ROOT = 'C:\mingw32'
           foreach ($prefix in ' *x86\', ' *x64\') {
             $env:PATH = $env:MINGW_ROOT + '\bin;' + $path
-            $env:SOURCE_DATE_EPOCH = ([DateTimeOffset]'2026-11-22T00:00:00+09:00').ToUnixTimeSeconds()
+            $env:SOURCE_DATE_EPOCH = ([DateTimeOffset]'2026-11-28T00:00:00+09:00').ToUnixTimeSeconds()
             mingw32-make CC=gcc
             if ($LASTEXITCODE -ne 0) { Write-Error . }
             Add-Release asyncbuf.exe 'Tools\asyncbuf.exe'
@@ -88,6 +88,12 @@ jobs:
             Add-Release tsmemseg.exe 'Tools\tsmemseg(without-d).exe'
             Add-Release tsreadex.exe 'Tools\tsreadex.exe'
             mingw32-make CC=gcc clean_extra
+            cd ..\..\EpgTimer
+            $platform = $prefix.TrimStart(' ', '*').TrimEnd('\')
+            & C:\Windows\Microsoft.NET\Framework\v4.0.30319\MSBuild.exe EpgTimer.sln /p:Configuration=Release /p:Platform=$platform
+            if ($LASTEXITCODE -ne 0) { Write-Error . }
+            cd ..\Document\MinGW
+            Add-Release "..\..\$platform\Release\EpgTimer.exe" 'EpgTimer.exe'
             $env:MINGW_ROOT = 'C:\mingw64'
           }
 
